@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { API_BASE_URL } from "@/utils/api";
 
 export default function ApiStatus() {
   const [status, setStatus] = useState("checking...");
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/health`)
+    fetch(`${API_BASE_URL}/health`)
       .then((response) => {
         if (response.ok) {
           setStatus("ok");
