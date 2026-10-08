@@ -1,0 +1,50 @@
+# =====================================================
+# cortxdesk - Python requirements (single file)
+# Python 3.11 - 3.13
+# Install: pip install -r requirements.txt
+# =====================================================
+
+# ----- Web framework (Story 1.1) -----
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+pydantic-settings
+python-dotenv
+
+# ----- Auth and database (Stories 1.2, 1.3) -----
+PyJWT[crypto]
+cryptography
+supabase
+httpx
+
+# ----- LLM and embeddings (Stories 2.1, 3.1) -----
+google-genai
+groq
+tenacity
+
+# ----- MCP tools and web search (Stories 2.2, 2.3, 3.2) -----
+mcp
+tavily-python
+ddgs
+
+# ----- RAG / documents (Stories 3.1, 3.2) -----
+pypdf
+
+# ----- Multi-agent (Stories 4.1, 4.2) -----
+langgraph
+langchain-core
+langchain-google-genai
+
+# ----- Streaming (Story 5.1) -----
+sse-starlette
+
+# ----- Testing -----
+pytest
+pytest-asyncio
+pytest-cov
+
+# ----- Code quality and security (CI, Story 1.4) -----
+ruff
+mypy
+pip-audit
