@@ -1,0 +1,33 @@
+name: Security Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  security-check:
+    name: Basic Security Workflow Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for committed private key files
+        shell: bash
+        run: |
+          if find . -type f \
+            \( -name '*.pem' -o -name '*.key' \) \
+            -not -path './.git/*' \
+            | grep -q .; then
+            echo "Potential private key files found."
+            echo "Review these files before merging."
+            exit 1
+          fi
+          echo "No files with .pem or .key extensions found."
