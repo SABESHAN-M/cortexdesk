@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "setup": "node scripts/setup.js",
+    "postinstall": "npm --prefix frontend install",
+    "check-env": "node scripts/check-env.js",
     "dev": "concurrently --names \"web,api\" --prefix-colors \"blue,green\" \"npm run dev --prefix frontend\" \"uv run --directory backend uvicorn --reload --reload-exclude *.venv* --port 8000 main:app\"",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "backend\\.venv\\Scripts\\uvicorn main:app --reload --port 8000 --app-dir backend",
+    "dev:backend": "uv run --directory backend uvicorn main:app --reload --port 8000 --reload-exclude *.venv*",
     "build": "npm --prefix frontend run build",
     "start": "npm --prefix frontend run start",
     "lint": "npm --prefix frontend run lint",
@@ -13,5 +16,8 @@
   },
   "devDependencies": {
     "concurrently": "^10.0.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
