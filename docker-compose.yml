@@ -1,0 +1,33 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: cortexdesk-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-cortexdesk}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-cortexdesk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    name: cortexdesk_postgres_data
+
+# Local Development Note:
+# Default database credentials above are intended strictly for local development and testing.
+# For production or shared environments, override these via environment variables or an untracked .env file.
+#
+# Enabling pgvector Extension:
+# The pgvector extension binary is pre-installed in the pgvector/pgvector container.
+# It can be activated in the database by executing:
+#   CREATE EXTENSION IF NOT EXISTS vector;
+# Application database schemas and migrations will be applied in subsequent stories.

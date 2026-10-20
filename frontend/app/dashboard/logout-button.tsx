@@ -1,23 +1,56 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/utils/supabase/client";
 
 export default function LogoutButton() {
-  const [isPending, setIsPending] = useState(false);
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSignOut = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // 1. Client-side sign out to remove local session and cookie tokens
+      const supabase = createClient();
+      await supabase.auth.signOut();
+
+      // 2. Server-side session invalidation via route handler
+      try {
+        await fetch("/auth/signout", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+      } catch {
+        // Fallback continues even if network hiccup on server route
+      }
+
+      // 3. Navigate to login and refresh router cache to clear protected UI
+      router.push("/login");
+      router.refresh();
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "Failed to sign out. Please try again.";
+      setError(message);
+      setIsLoading(false);
+    }
+  };
 
   return (
-    <form
-      action="/auth/signout"
-      method="post"
-      onSubmit={() => setIsPending(true)}
-    >
+    <div className="flex flex-col items-end">
       <button
-        type="submit"
-        disabled={isPending}
-        aria-busy={isPending}
-        className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3.5 py-2 text-sm font-medium text-zinc-800 shadow-xs transition hover:bg-zinc-50 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800/80 dark:hover:text-white dark:focus-visible:ring-zinc-300"
+        type="button"
+        onClick={handleSignOut}
+        disabled={isLoading}
+        aria-busy={isLoading}
+        className="inline-flex items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3.5 py-2 text-sm font-medium text-zinc-800 shadow-2xs transition hover:bg-zinc-50 hover:text-zinc-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800/80 dark:hover:text-white dark:focus-visible:ring-zinc-300"
       >
-        {isPending ? (
+        {isLoading ? (
           <>
             <svg
               className="h-4 w-4 animate-spin text-current"
@@ -63,6 +96,11 @@ export default function LogoutButton() {
           </>
         )}
       </button>
-    </form>
+      {error && (
+        <p className="mt-1 text-xs text-red-500" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
