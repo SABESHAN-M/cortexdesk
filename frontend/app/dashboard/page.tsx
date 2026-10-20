@@ -32,6 +32,10 @@ export default async function DashboardPage() {
     .select("id, title, description, created_at, owner_id")
     .order("created_at", { ascending: false });
 
+  if (projectsError) {
+    console.error("Dashboard failed to fetch projects:", projectsError);
+  }
+
   // User metadata resolution
   const userEmail =
     user.email || (user.user_metadata?.email as string | undefined);
@@ -206,9 +210,31 @@ export default async function DashboardPage() {
               <h3 className="mt-4 text-base font-semibold text-red-900 dark:text-red-200">
                 Unable to load projects
               </h3>
-              <p className="mt-1 text-sm text-red-700 dark:text-red-300 max-w-md mx-auto">
-                A database query error occurred while fetching your workspace data. Please verify database connectivity and try again.
-              </p>
+
+              {projectsError.code === "PGRST205" ||
+              projectsError.message?.includes("public.projects") ? (
+                <div className="mt-3 text-xs bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 p-4 rounded-xl max-w-lg mx-auto text-left space-y-2">
+                  <p className="font-semibold flex items-center gap-1.5 text-amber-900 dark:text-amber-200">
+                    <span>⚠️</span> Database Schema Migration Required
+                  </p>
+                  <p>
+                    The <code className="bg-amber-100 dark:bg-amber-900/60 px-1 py-0.5 rounded font-mono">public.projects</code> table has not been created in your Supabase project yet.
+                  </p>
+                  <p className="text-amber-700 dark:text-amber-400">
+                    Run the following migrations in your Supabase SQL Editor:
+                  </p>
+                  <ol className="list-decimal list-inside font-mono text-2xs space-y-1 bg-white/60 dark:bg-black/40 p-2.5 rounded-lg border border-amber-200/60 dark:border-amber-800/60">
+                    <li>database/migrations/0001_core.sql</li>
+                    <li>database/migrations/0001_core_rls.sql</li>
+                  </ol>
+                </div>
+              ) : (
+                <p className="mt-1 text-sm text-red-700 dark:text-red-300 max-w-md mx-auto">
+                  {projectsError.message ||
+                    "A database query error occurred while fetching your workspace data. Please verify database connectivity and try again."}
+                </p>
+              )}
+
               <div className="mt-5">
                 <Link
                   href="/dashboard"
