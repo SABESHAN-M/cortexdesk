@@ -40,14 +40,14 @@ ensureEnvFile('.env.example', '.env');
 ensureEnvFile('frontend/.env.example', 'frontend/.env.local');
 ensureEnvFile('backend/.env.example', 'backend/.env');
 
-// 3. Install frontend dependencies
-console.log('\n--- Installing Frontend Dependencies ---');
+// 3. Install Node.js dependencies (root + frontend)
+console.log('\n--- Installing Node.js Dependencies ---');
 try {
-  console.log('📦 Running npm install in frontend directory...');
-  execSync('npm install', { cwd: FRONTEND_DIR, stdio: 'inherit' });
-  console.log('✅ Frontend dependencies installed successfully.');
+  console.log('📦 Running npm install in root directory...');
+  execSync('npm install', { cwd: ROOT_DIR, stdio: 'inherit' });
+  console.log('✅ Dependencies installed successfully.');
 } catch (err) {
-  console.error('❌ Failed to install frontend dependencies:', err.message);
+  console.error('❌ Failed to install dependencies:', err.message);
 }
 
 // 4. Check / install backend dependencies
