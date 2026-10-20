@@ -1,1 +1,11 @@
-* @sapien11
+# CortexDesk — GitHub CODEOWNERS
+# Project Manager / Primary Code Owner definition
+#
+# Rules:
+# - Applies to all repository files, subdirectories, and dotfiles.
+# - Requires the designated user to have write or admin permissions on the repo.
+# - Must be merged into the repository's default branch (main) for GitHub PR
+#   review automation and Code Owner branch protection rules to take effect.
+# ==============================================================================
+
+* @sabeshan-m

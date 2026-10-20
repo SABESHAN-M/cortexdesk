@@ -8,52 +8,117 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const urlError =
     searchParams.get("error_description") || searchParams.get("error");
+  const nextParam = searchParams.get("next");
 
   const [errorMessage, setErrorMessage] = useState<string | null>(urlError);
-  const [isLoading, setIsLoading] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [isGitHubLoading, setIsGitHubLoading] = useState(false);
+  const [isMagicLinkLoading, setIsMagicLinkLoading] = useState(false);
 
+  const isBusy = isGitHubLoading || isMagicLinkLoading;
+
+  // 1. GitHub OAuth Login Handler
   const handleGitHubLogin = async () => {
-    setIsLoading(true);
+    if (isBusy) return;
+
+    setIsGitHubLoading(true);
     setErrorMessage(null);
+    setSuccessMessage(null);
 
     try {
       const supabase = createClient();
       const redirectOrigin =
         typeof window !== "undefined" ? window.location.origin : "";
 
+      const callbackUrl = new URL(`${redirectOrigin}/auth/callback`);
+      if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) {
+        callbackUrl.searchParams.set("next", nextParam);
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: "github",
         options: {
-          redirectTo: `${redirectOrigin}/auth/callback`,
+          redirectTo: callbackUrl.toString(),
         },
       });
 
       if (error) {
         setErrorMessage(error.message);
-        setIsLoading(false);
+        setIsGitHubLoading(false);
       }
-      // On success, Supabase redirects the browser to the GitHub OAuth consent screen
+      // On success, Supabase redirects the browser to GitHub OAuth
     } catch (err: unknown) {
       const message =
         err instanceof Error
           ? err.message
           : "An unexpected error occurred while connecting to GitHub.";
       setErrorMessage(message);
-      setIsLoading(false);
+      setIsGitHubLoading(false);
+    }
+  };
+
+  // 2. Email Magic Link Login Handler
+  const handleMagicLinkLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isBusy || !email.trim()) return;
+
+    setIsMagicLinkLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const supabase = createClient();
+      const redirectOrigin =
+        typeof window !== "undefined" ? window.location.origin : "";
+
+      const callbackUrl = new URL(`${redirectOrigin}/auth/callback`);
+      if (nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//")) {
+        callbackUrl.searchParams.set("next", nextParam);
+      }
+
+      const { error } = await supabase.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          emailRedirectTo: callbackUrl.toString(),
+        },
+      });
+
+      if (error) {
+        setErrorMessage(error.message);
+      } else {
+        setSuccessMessage(
+          `Magic link sent! Check ${email} for your secure login link.`
+        );
+        setEmail("");
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to send magic link. Please try again.";
+      setErrorMessage(message);
+    } finally {
+      setIsMagicLinkLoading(false);
     }
   };
 
   return (
-    <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+      {/* Brand Header */}
       <div className="text-center">
+        <div className="mx-auto mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-zinc-900 font-bold text-white dark:bg-zinc-100 dark:text-zinc-900">
+          C
+        </div>
         <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-          Welcome back
+          Sign in to CortexDesk
         </h1>
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-          Sign in with your GitHub account to access your Cortexdesk workspaces and collaborate.
+          Access your AI-augmented personal cognitive workspace
         </p>
       </div>
 
+      {/* Error Alert */}
       {errorMessage && (
         <div
           role="alert"
@@ -65,15 +130,28 @@ function LoginForm() {
         </div>
       )}
 
+      {/* Success Alert */}
+      {successMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-6 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-400"
+        >
+          <p className="font-medium">Email Sent</p>
+          <p className="mt-0.5 text-xs">{successMessage}</p>
+        </div>
+      )}
+
+      {/* Primary Action: GitHub OAuth */}
       <div className="mt-6">
         <button
           type="button"
           onClick={handleGitHubLogin}
-          disabled={isLoading}
-          aria-busy={isLoading}
-          className="group relative flex w-full items-center justify-center gap-3 rounded-lg bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus-visible:ring-zinc-300"
+          disabled={isBusy}
+          aria-busy={isGitHubLoading}
+          className="group relative flex w-full items-center justify-center gap-3 rounded-lg bg-zinc-900 px-4 py-3 text-sm font-semibold text-white shadow-xs transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 dark:focus-visible:ring-zinc-300"
         >
-          {isLoading ? (
+          {isGitHubLoading ? (
             <svg
               className="h-5 w-5 animate-spin text-current"
               xmlns="http://www.w3.org/2000/svg"
@@ -109,13 +187,81 @@ function LoginForm() {
             </svg>
           )}
           <span>
-            {isLoading ? "Connecting to GitHub..." : "Continue with GitHub"}
+            {isGitHubLoading ? "Connecting to GitHub..." : "Continue with GitHub"}
           </span>
         </button>
       </div>
 
-      <div className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-500">
-        By continuing, you agree to our terms of service and privacy policy.
+      {/* Divider */}
+      <div className="relative my-6 flex items-center justify-center">
+        <div className="w-full border-t border-zinc-200 dark:border-zinc-800" />
+        <span className="absolute bg-white px-3 text-xs font-medium uppercase tracking-wider text-zinc-400 dark:bg-zinc-900 dark:text-zinc-500">
+          or
+        </span>
+      </div>
+
+      {/* Secondary Action: Email Magic Link */}
+      <form onSubmit={handleMagicLinkLogin} className="space-y-4">
+        <div>
+          <label
+            htmlFor="email"
+            className="block text-xs font-medium text-zinc-700 dark:text-zinc-300"
+          >
+            Email address
+          </label>
+          <input
+            id="email"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={isBusy}
+            placeholder="name@example.com"
+            autoComplete="email"
+            className="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3.5 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 shadow-2xs transition focus:border-zinc-900 focus:outline-none focus:ring-1 focus:ring-zinc-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500 dark:focus:border-zinc-100 dark:focus:ring-zinc-100"
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={isBusy || !email.trim()}
+          aria-busy={isMagicLinkLoading}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-800 shadow-2xs transition hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-950 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700/80 dark:focus-visible:ring-zinc-300"
+        >
+          {isMagicLinkLoading ? (
+            <>
+              <svg
+                className="h-4 w-4 animate-spin text-current"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                />
+              </svg>
+              <span>Sending magic link...</span>
+            </>
+          ) : (
+            <span>Send Magic Link</span>
+          )}
+        </button>
+      </form>
+
+      {/* Footer Notice */}
+      <div className="mt-8 text-center text-xs text-zinc-500 dark:text-zinc-500">
+        By continuing, you agree to CortexDesk terms and privacy policies.
       </div>
     </div>
   );
@@ -127,7 +273,7 @@ export default function LoginPage() {
       <Suspense
         fallback={
           <div className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-8 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-            Loading...
+            Loading sign in...
           </div>
         }
       >

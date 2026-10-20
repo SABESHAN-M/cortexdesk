@@ -1,29 +1,98 @@
-# Node
+# Dependencies
 node_modules/
+node_modules
+.pnp
+.pnp.js
+
+# Next.js & Frontend Build Outputs
 .next/
+.next
 out/
+out
 build/
+build
+dist/
+dist
 *.tsbuildinfo
 next-env.d.ts
 
-# Python
+# Python & Virtual Environments
+.venv/
+.venv
+venv/
+venv
+ENV/
+ENV
+env/
+env
 __pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 *.so
-.venv/
-venv/
-ENV/
-env/
+.Python
 
-# Environment files
-.env
-.env.local
-.env.*.local
+# Testing & Coverage Caches
+.pytest_cache/
+.pytest_cache
+.coverage
+.coverage.*
+coverage/
+coverage
+htmlcov/
+htmlcov
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+
+# Environment Files & Secrets (exclude all, then explicitly allow .env.example templates)
+.env*
 !.env.example
+!**/.env.example
 
-# IDE / OS
-.DS_Store
-Thumbs.db
-.vscode/
+# Credentials & Keys
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa*
+secrets.json
+
+# Database & Persistent Data
+postgres_data/
+postgres_data
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE & Editor Configurations
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
 .idea/
+.idea
+*.swp
+*.swo
+*~
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini

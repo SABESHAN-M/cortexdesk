@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { API_BASE_URL } from "@/utils/api";
+import { authenticatedFetch } from "@/utils/api";
 
 export default function ApiStatus() {
   const [status, setStatus] = useState("checking...");
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/health`)
+    authenticatedFetch("/health", { allowAnonymous: true })
       .then((response) => {
         if (response.ok) {
           setStatus("ok");
