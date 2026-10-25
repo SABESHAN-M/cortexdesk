@@ -56,6 +56,10 @@ jobs:
       SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODMwMjQ0MDB9.dummy-signature-for-ci-build-only
       SUPABASE_JWT_AUDIENCE: authenticated
       CORS_ORIGINS: http://localhost:3000
+      LLM_PROVIDER: gemini
+      GEMINI_API_KEY: dummy-gemini-test-key-for-ci-build-only
+      LLM_MODEL: gemini-2.0-flash
+      EMBED_MODEL: text-embedding-004
 
     steps:
       - name: Checkout repository
