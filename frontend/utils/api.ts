@@ -18,9 +18,12 @@
  *    - Automatically sets `Content-Type: application/json` only for JSON-serializable payloads.
  *    - Intentionally omits `Content-Type` for `FormData` to allow the browser to generate
  *      the appropriate `multipart/form-data` boundary.
- * 4. Zero Credential Exposure:
+ * 4. Cold-Start & Timeout Resilience:
+ *    - Supports `onSlowRequest` notification callback to detect slow cold starts (> 2000ms).
+ *    - Supports configurable timeouts with dedicated `ApiTimeoutError`.
+ * 5. Zero Credential Exposure:
  *    - Never logs, echoes, or stores access tokens in error messages, consoles, or storage.
- * 5. Lifecycle Delegation:
+ * 6. Lifecycle Delegation:
  *    - Delegates token refresh to Supabase Auth client session lifecycle.
  */
 
@@ -42,6 +45,18 @@ export class ApiNetworkError extends Error {
     super(message);
     this.name = "ApiNetworkError";
     this.originalError = originalError;
+  }
+}
+
+export class ApiTimeoutError extends Error {
+  public timeoutMs: number;
+  constructor(
+    message = "Request timed out waiting for backend response.",
+    timeoutMs = 45000
+  ) {
+    super(message);
+    this.name = "ApiTimeoutError";
+    this.timeoutMs = timeoutMs;
   }
 }
 
@@ -91,6 +106,19 @@ export interface AuthenticatedApiOptions extends RequestInit {
    * user is currently signed in. Defaults to false (strict authentication required).
    */
   allowAnonymous?: boolean;
+  /**
+   * Request timeout in milliseconds. If omitted, no automatic timeout is enforced.
+   */
+  timeoutMs?: number;
+  /**
+   * Optional callback invoked when the request takes longer than slowThresholdMs
+   * (e.g. during a free-tier hosting cold start).
+   */
+  onSlowRequest?: () => void;
+  /**
+   * Delay in milliseconds before triggering onSlowRequest. Defaults to 2000ms.
+   */
+  slowThresholdMs?: number;
 }
 
 /**
@@ -104,7 +132,11 @@ export async function authenticatedFetch(
   const url = resolveBackendUrl(endpoint);
   const {
     allowAnonymous = false,
+    timeoutMs,
+    onSlowRequest,
+    slowThresholdMs = 2000,
     headers: customHeaders,
+    signal: userSignal,
     ...restOptions
   } = options;
 
@@ -156,7 +188,6 @@ export async function authenticatedFetch(
     restOptions.body !== undefined &&
     restOptions.body !== null
   ) {
-    // If body is an object that is not a binary stream/blob, auto-serialize
     if (
       typeof restOptions.body === "object" &&
       !(restOptions.body instanceof Blob) &&
@@ -172,13 +203,51 @@ export async function authenticatedFetch(
     headers.set("Accept", "application/json");
   }
 
-  // 4. Execute fetch with network error boundary and signal propagation
+  // 4. Set up AbortController, Timeout, and Slow Request Watchers
+  const internalController = new AbortController();
+  let isTimedOut = false;
+  let slowTimer: ReturnType<typeof setTimeout> | null = null;
+  let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+  if (onSlowRequest) {
+    slowTimer = setTimeout(() => {
+      onSlowRequest();
+    }, slowThresholdMs);
+  }
+
+  if (timeoutMs && timeoutMs > 0) {
+    timeoutTimer = setTimeout(() => {
+      isTimedOut = true;
+      internalController.abort("TIMEOUT");
+    }, timeoutMs);
+  }
+
+  // Forward external cancellation
+  if (userSignal) {
+    if (userSignal.aborted) {
+      internalController.abort(userSignal.reason);
+    } else {
+      userSignal.addEventListener("abort", () => {
+        internalController.abort(userSignal.reason);
+      });
+    }
+  }
+
+  // 5. Execute fetch with network error boundary and signal propagation
   try {
-    return await fetch(url, {
+    const response = await fetch(url, {
       ...restOptions,
       headers,
+      signal: internalController.signal,
     });
+    return response;
   } catch (err: unknown) {
+    if (isTimedOut) {
+      throw new ApiTimeoutError(
+        `Backend request timed out after ${timeoutMs}ms waiting for response.`,
+        timeoutMs
+      );
+    }
     if (err instanceof DOMException && err.name === "AbortError") {
       throw err; // Preserve natural abort handling for callers
     }
@@ -186,6 +255,9 @@ export async function authenticatedFetch(
       "Failed to connect to backend server. Verify the API service is running.",
       err
     );
+  } finally {
+    if (slowTimer) clearTimeout(slowTimer);
+    if (timeoutTimer) clearTimeout(timeoutTimer);
   }
 }
 
