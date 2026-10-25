@@ -3,16 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
+    "install:all": "node scripts/setup.js",
     "setup": "node scripts/setup.js",
     "postinstall": "npm --prefix frontend install",
     "check-env": "node scripts/check-env.js",
-    "dev": "concurrently --names \"web,api\" --prefix-colors \"blue,green\" \"npm run dev --prefix frontend\" \"uv run --directory backend uvicorn --reload --reload-exclude *.venv* --port 8000 main:app\"",
+    "dev": "concurrently -k --names \"web,api\" --prefix-colors \"blue,green\" --prefix \"[{name}]\" \"npm run dev:frontend\" \"npm run dev:backend\"",
     "dev:frontend": "npm --prefix frontend run dev",
-    "dev:backend": "uv run --directory backend uvicorn main:app --reload --port 8000 --reload-exclude *.venv*",
+    "dev:backend": "uv run --directory backend uvicorn main:app --reload --port 8000 --host 127.0.0.1 --reload-exclude *.venv*",
     "build": "npm --prefix frontend run build",
     "start": "npm --prefix frontend run start",
     "lint": "npm --prefix frontend run lint",
-    "test": "uv run --directory backend pytest tests"
+    "test": "uv run --directory backend pytest -c ../pytest.ini"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

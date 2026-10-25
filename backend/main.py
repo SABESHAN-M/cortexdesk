@@ -1,23 +1,47 @@
-import os
-from fastapi import FastAPI
+from typing import Optional
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+from pydantic import BaseModel
 
-load_dotenv()
+from config import get_settings
+from auth import get_current_user, AuthenticatedUser
+from routers.projects import router as projects_router
 
-app = FastAPI(title="Cognitive Workspace API")
+settings = get_settings()
 
-raw_origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
-origins = [o.strip() for o in raw_origins.split(",") if o.strip()]
+app = FastAPI(
+    title="CortexDesk API",
+    version="0.1.0",
+    description="FastAPI service for the CortexDesk cognitive workspace",
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Accept"],
 )
+
+
+class UserProfileResponse(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+
 
 @app.get("/health")
 def health() -> dict:
+    """Public health endpoint for monitoring and local integration checks."""
     return {"status": "ok"}
+
+
+@app.get("/me", response_model=UserProfileResponse)
+def get_me(user: AuthenticatedUser = Depends(get_current_user)) -> UserProfileResponse:
+    """
+    Protected route returning identity metadata for the authenticated user.
+    Never exposes raw bearer tokens in response bodies.
+    """
+    return UserProfileResponse(user_id=user.user_id, email=user.email)
+
+
+app.include_router(projects_router)
