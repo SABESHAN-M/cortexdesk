@@ -178,6 +178,12 @@ export async function authenticatedFetch(
 
     if (session?.access_token) {
       token = session.access_token.trim();
+    } else {
+      // Fallback: Attempt session refresh from cookies if in-memory session was expired or empty
+      const { data: refreshData } = await supabase.auth.refreshSession();
+      if (refreshData.session?.access_token) {
+        token = refreshData.session.access_token.trim();
+      }
     }
   } catch (err) {
     if (err instanceof ApiAuthError) throw err;
@@ -216,6 +222,11 @@ export async function authenticatedFetch(
       !ArrayBuffer.isView(restOptions.body)
     ) {
       restOptions.body = JSON.stringify(restOptions.body);
+      headers.set("Content-Type", "application/json");
+    } else if (
+      typeof restOptions.body === "string" &&
+      (restOptions.body.startsWith("{") || restOptions.body.startsWith("["))
+    ) {
       headers.set("Content-Type", "application/json");
     }
   }
@@ -308,5 +319,7 @@ export async function fetchApi<T = unknown>(
 
   return (await response.json()) as T;
 }
+
+export const apiFetch = authenticatedFetch;
 
 export default authenticatedFetch;

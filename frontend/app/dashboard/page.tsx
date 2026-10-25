@@ -324,7 +324,7 @@ export default async function DashboardPage() {
                         href={`/projects/${project.id}`}
                         className="font-medium text-zinc-700 dark:text-zinc-300 hover:text-zinc-950 dark:hover:text-white transition flex items-center gap-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-400 rounded"
                       >
-                        <span>Open</span>
+                        <span>Open project</span>
                         <svg
                           className="h-3 w-3"
                           xmlns="http://www.w3.org/2000/svg"

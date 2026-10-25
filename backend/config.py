@@ -44,6 +44,19 @@ class Settings(BaseSettings):
         default="",
         description="Configurable embedding model identifier for future RAG pipelines",
     )
+    llm_temperature: float = Field(
+        default=0.3,
+        description="Sampling temperature for LLM generation (default: 0.3)",
+    )
+    llm_max_output_tokens: int = Field(
+        default=2048,
+        description="Maximum output tokens for LLM generation (default: 2048)",
+    )
+    chat_rate_limit_per_minute: int = Field(
+        default=5,
+        ge=1,
+        description="Per-user rate limit for /api/chat requests per minute (default: 5)",
+    )
 
     model_config = SettingsConfigDict(
         env_file=(str(BACKEND_DIR / ".env"), ".env"),
