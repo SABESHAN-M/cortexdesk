@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,13 +7,24 @@ from pydantic import BaseModel
 from config import get_settings
 from auth import get_current_user, AuthenticatedUser
 from routers.projects import router as projects_router
+from routers.chat import router as chat_router
+from services.llm import llm
 
+# Active configuration loaded from environment
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    yield
+    await llm.aclose()
+
 
 app = FastAPI(
     title="CortexDesk API",
     version="0.1.0",
     description="FastAPI service for the CortexDesk cognitive workspace",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -45,3 +57,4 @@ def get_me(user: AuthenticatedUser = Depends(get_current_user)) -> UserProfileRe
 
 
 app.include_router(projects_router)
+app.include_router(chat_router)

@@ -8,8 +8,8 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: pip install uv && uv sync --frozen --no-dev
-    startCommand: uv run uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install uv && uv sync --active --frozen --no-dev
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
@@ -24,4 +24,12 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: CORS_ORIGINS
+        sync: false
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: EMBED_MODEL
         sync: false

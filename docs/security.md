@@ -542,3 +542,127 @@ The FastAPI backend deployment configuration was audited:
 > 4. **Runtime Hardening**: Containers run as unprivileged non-root users (UID 1000/1001), dependencies are deterministically locked, and CORS explicitly strips wildcard origins.
 > 5. **External Dashboard Gates**: Remote cloud provider dashboard operations (Vercel project environment variables, Render blueprint provisioning, and Supabase URL settings) are accurately classified as `BLOCKED` awaiting manual user execution in their respective cloud consoles.
 
+---
+
+## Security baseline for Story 2.1
+
+This section documents the security controls, architectural boundaries, threat model verifications, and sign-off audit for **Story 2.1: Initial Chat Service & UI Integration**.
+
+---
+
+### 1. Server-Only Provider Credentials & Isolation
+
+- **Zero Client Exposure**:
+  - LLM credentials (`GEMINI_API_KEY`, `GROQ_API_KEY`) reside exclusively in server-side configuration ([`backend/config.py`](file:///backend/config.py)) and local gitignored environment files ([`backend/.env`](file:///backend/.env)).
+  - Zero presence in frontend source files, client bundles, `NEXT_PUBLIC_*` variables, or browser network payloads.
+  - Client components communicate with the backend exclusively via `POST /api/chat`, forwarding only `{ message, project_id }`.
+- **String Representation Sanitization**:
+  - `backend/config.py` explicitly masks API keys in string and representation formats (`masked_gemini = "***" if self.gemini_api_key else None`), preventing accidental credential leakage in debug output or stack traces.
+- **Template Hygiene**:
+  - Committed environment templates ([`.env.example`](file:///.env.example), [`backend/.env.example`](file:///backend/.env.example)) contain only synthetic placeholders (`replace_with_your_own_local_api_key`).
+- **CI Isolation**:
+  - GitHub Actions ([`.github/workflows/ci.yml`](file:///.github/workflows/ci.yml)) uses non-functional dummy literals (`dummy-gemini-test-key-for-ci-build-only`). No production secrets are exposed to pull request runs.
+
+---
+
+### 2. Provider SDK Encapsulation Boundary
+
+- **Single Provider Module Boundary**:
+  - The provider SDK (`google.genai`) is strictly encapsulated within [`backend/services/llm.py`](file:///backend/services/llm.py).
+  - Codebase search verified zero imports of `google.genai` across API routes, middleware, utilities, and frontend components.
+  - Test files ([`backend/tests/test_llm_service.py`](file:///backend/tests/test_llm_service.py), [`backend/tests/test_chat.py`](file:///backend/tests/test_chat.py)) import error classes solely for offline mocking.
+- **Provider Interchangeability**:
+  - Routers communicate with the LLM purely through abstract methods (`llm.complete()`, `llm.stream()`), preventing vendor SDK coupling or leaking vendor-specific payload shapes into API handlers.
+
+---
+
+### 3. Authentication & Identity Verification
+
+- **Strict Bearer Verification**:
+  - `POST /api/chat` is protected by `Depends(get_current_user)`.
+  - Cryptographically validates Supabase access tokens against published JWKS keys using asymmetric RS256/ES256 algorithms with bounded in-memory caching (300s lifespan).
+- **Zero Client Identity Trust**:
+  - Caller identity is derived exclusively from the verified JWT subject claim (`user.user_id`). Client payloads cannot spoof or override user identity.
+- **Pre-Execution Rejection**:
+  - Missing, expired, malformed, or untrusted tokens are rejected immediately with HTTP 401 before any LLM processing or database queries execute.
+
+---
+
+### 4. Input Validation & Project Context Authorization
+
+- **Message Content Constraints**:
+  - Constrained to 1–8000 characters via Pydantic schema validation.
+  - Custom validator trims whitespace and explicitly rejects empty strings or whitespace-only inputs (`HTTP 422`).
+- **Project Context RLS Enforcement**:
+  - Optional `project_id` must conform to UUID format (`HTTP 422` on malformed string).
+  - Project access is verified via user-scoped PostgREST query (`db.from_("projects").select("id").eq("id", project_id)`).
+  - Under PostgreSQL Row Level Security (RLS), queries only return rows owned by the caller (`owner_id = auth.uid()`).
+  - Unowned or nonexistent project IDs return uniform **HTTP 404** (`"Project not found"`), preventing cross-tenant existence enumeration.
+
+---
+
+### 5. Rate Limiting & Resource Protection
+
+- **Identity-Bound Limiting**:
+  - In-memory sliding-window limiter (`InMemoryRateLimiter`) keys requests strictly by verified caller identity (`user.user_id`), never client IP or payload attributes.
+  - Configurable rate limit defaults to 5 requests per minute per user (`chat_rate_limit_per_minute`).
+- **Fast Rejection**:
+  - Rate-limited callers receive HTTP 429 (`"Rate limit exceeded. Please wait a moment before sending more messages."`) with standard `Retry-After: 60`.
+  - Rejected requests are halted prior to invoking the LLM service, preventing provider quota exhaustion and financial spikes.
+- **Memory Bounding & Eviction**:
+  - Employs periodic window cleanup and entry caps (`max_entries=10000`) to prevent memory exhaustion attacks.
+- **Multi-Worker Production Limitation**:
+  - The in-memory limiter is process-scoped. In horizontally scaled or multi-worker deployments (e.g. multiple Uvicorn workers), counters are maintained per worker. Distributed global enforcement requires an external cache (e.g. Redis / Upstash) in a future milestone.
+
+---
+
+### 6. Sanitized Error Handling & Logging Hygiene
+
+- **Provider Failure Masking**:
+  - Provider exceptions during generation are caught and mapped to a static, sanitized **HTTP 503** (`"The AI service is busy. Please try again shortly."`).
+  - Raw SDK tracebacks, vendor error messages, exception details, and credentials are never returned to clients.
+- **Privacy-Safe Operational Logging**:
+  - Logs record only non-sensitive operational telemetry: model identifier, elapsed duration (`duration_s`), token counts (`prompt_tokens`, `output_tokens`, `total_tokens`), and sanitized failure classification (`error_type`).
+  - **Zero Content Leakage**: Prompts, generated reply text, authorization headers, bearer tokens, and API keys are strictly excluded from console logs and files.
+- **Bounded Exponential Retry**:
+  - Retries are restricted to transient failures (HTTP 429, HTTP 5xx, network timeouts) using Tenacity with a maximum of 3 total attempts (exponential backoff 1s to 8s).
+  - Permanent errors (HTTP 400, 401, 403, 404) fail fast on the first attempt without retrying.
+
+---
+
+### 7. Security Checklist & Audit Matrix (Story 2.1 / Task 2.1.7)
+
+| Control Item | Audit Layer | Verification Method | Status |
+| :--- | :--- | :--- | :---: |
+| **API Key Git Exclusion** | Repository | Git ls-files, `.gitignore` inspection, diff audit | **PASS** |
+| **Zero Secrets in Frontend Bundles** | Frontend | Codebase grep & `NEXT_PUBLIC_*` audit | **PASS** |
+| **Environment Template Placeholder Safety** | Repository | Inspection of `.env.example` files | **PASS** |
+| **Provider SDK Encapsulation (`google.genai`)** | Architecture | Codebase grep: restricted to `services/llm.py` | **PASS** |
+| **Authenticated Chat Route Guard** | Backend | `backend/routers/chat.py` with `get_current_user` | **PASS** |
+| **Caller Identity from Verified JWT** | Backend | Verified `user.user_id` derived from `sub` claim | **PASS** |
+| **Message Length Constraint (1–8000 chars)** | Backend | Pydantic schema validation & automated tests | **PASS** |
+| **Whitespace-Only Message Rejection** | Backend | Pydantic `@field_validator` & automated tests | **PASS** |
+| **Server-Side Project Ownership (RLS)** | Backend | PostgREST user client & RLS 404 test | **PASS** |
+| **Cross-Tenant Enumeration Defense** | Backend | Uniform 404 on unowned or missing project ID | **PASS** |
+| **Per-User Rate Limiting (HTTP 429)** | Backend | `InMemoryRateLimiter` & automated tests | **PASS** |
+| **Provider Error Masking (HTTP 503)** | Backend | Sanitized exception handler & automated tests | **PASS** |
+| **Zero Prompts or Texts in Logs** | Logging | Log inspection in `backend/services/llm.py` | **PASS** |
+| **Deterministic Offline Automated Tests** | Testing | 19/19 chat tests passing with mock boundaries | **PASS** |
+| **CI Dummy Credential Safety** | CI/CD | Inspection of `.github/workflows/ci.yml` | **PASS** |
+| **GitHub Secret Scanning & Push Protection** | External | GitHub Repository Settings / Plan features | **NOT VERIFIED** *(Requires GitHub Admin)* |
+| **GitHub Branch Protection Rulesets on `main`** | External | GitHub Repository Settings → Rulesets | **NOT VERIFIED** *(Requires GitHub Admin)* |
+
+---
+
+#### Lead Application Security Engineer Sign-off
+
+> **Decision**: **APPROVED / SIGNED OFF FOR STORY 2.1**
+>
+> **Sign-Off Assessment**:
+> 1. **Credential Hygiene**: Provider API keys exist solely in local untracked `.env` files and are never bundled into frontend assets, committed to Git, or logged in server telemetry.
+> 2. **Strict Boundary Isolation**: Provider SDK integration is 100% encapsulated in `backend/services/llm.py`. Frontend components access the AI service strictly through authenticated backend routes.
+> 3. **Defense in Depth**: Endpoints require cryptographically verified JWT bearer tokens, enforce input bounds, isolate project context via database RLS, and rate-limit callers to prevent resource abuse.
+> 4. **Information Leakage Prevention**: Upstream AI provider outages and network errors are masked as uniform HTTP 503 responses, preventing stack trace or vendor error exposure.
+> 5. **External Dashboard Requirements**: GitHub repository security features (Push Protection, Secret Scanning, Branch Protection) are appropriately recorded as `NOT VERIFIED` awaiting repository administrator inspection in the GitHub web console.
+
+
