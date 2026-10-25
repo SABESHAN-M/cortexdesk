@@ -97,12 +97,22 @@ Configure these runtime environment variables in the hosting dashboard (e.g., Re
 | `SUPABASE_ANON_KEY` | **Yes** | Server-side public Supabase anonymous key | `sb_publishable_...` |
 | `SUPABASE_JWT_AUDIENCE`| **Yes** | Expected JWT audience claim | `authenticated` |
 | `CORS_ORIGINS` | **Yes** | Comma-separated allowed frontend origins | `https://<your-vercel-domain>.vercel.app` |
+| `LLM_PROVIDER` | Optional | Active provider name (`gemini` or `groq`) | `gemini` |
+| `GEMINI_API_KEY` | **Yes** (if Gemini) | Private API key for Google Gemini | Configured in hosting dashboard |
+| `GROQ_API_KEY` | **Yes** (if Groq) | Private API key for Groq | Configured in hosting dashboard |
+| `LLM_MODEL` | **Yes** | Primary inference model identifier | `gemini-2.0-flash` |
+| `EMBED_MODEL` | **Yes** | Embedding model identifier for RAG | `text-embedding-004` |
 
 > [!WARNING]
-> **Strict Principle of Least Privilege**:
+> **Strict Principle of Least Privilege & Credential Isolation**:
 > - **Never configure `SUPABASE_SERVICE_ROLE_KEY`** in the backend runtime.
 > - CortexDesk's database operations execute strictly within the authenticated caller's identity via `backend/db.py:create_user_scoped_client` using the user's verified Bearer JWT and the project's public anon key.
 > - Never set `CORS_ORIGINS=*`. The backend configuration explicitly strips wildcards to prevent credential leakages.
+> - **LLM Provider Keys (`GEMINI_API_KEY`, `GROQ_API_KEY`)**:
+>   - Must be configured manually in the hosting provider dashboard (Render/Koyeb).
+>   - Must remain exclusively on the backend; **never prefix with `NEXT_PUBLIC_`**.
+>   - Never commit API keys to Git, Docker build arguments, or client bundles.
+
 
 ---
 
