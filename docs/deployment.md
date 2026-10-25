@@ -1,6 +1,6 @@
 # CortexDesk Production Deployment Guide
 
-This document provides canonical deployment configurations, environment specifications, operational procedures, and self-deployment instructions for both the **Next.js Frontend** (Vercel) and the **FastAPI Backend** (Render / Koyeb) from the CortexDesk monorepo.
+This document provides canonical deployment configurations, environment specifications, operational procedures, and self-deployment instructions for both the **Next.js Frontend** (Vercel) and the **FastAPI Backend** (Render / Koyeb) from the CortexDesk monorepo, as well as production integration and security specifications.
 
 ---
 
@@ -47,8 +47,8 @@ Configure under **Project Settings → Environment Variables** for **Production*
 | Variable Name | Environments | Description | Example / Initial Value |
 | :--- | :--- | :--- | :--- |
 | `NEXT_PUBLIC_APP_NAME` | Production, Preview | Application display name | `cortexdesk` |
-| `NEXT_PUBLIC_SUPABASE_URL` | Production, Preview | Supabase project API gateway | `https://<your-project-ref>.supabase.co` |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Production, Preview | Supabase client-safe anonymous key | `eyJhbGci...` |
+| `NEXT_PUBLIC_SUPABASE_URL` | Production, Preview | Supabase project API gateway | `https://hcliddnesvmfbywphcvt.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Production, Preview | Supabase client-safe anonymous key | `sb_publishable_...` |
 | `NEXT_PUBLIC_API_URL` | Production, Preview | Backend API URL | Updated to real backend URL once Task 1.4.5 is live |
 
 ---
@@ -93,10 +93,10 @@ Configure these runtime environment variables in the hosting dashboard (e.g., Re
 | :--- | :---: | :--- | :--- |
 | `APP_NAME` | Optional | Application identifier | `cortexdesk` |
 | `APP_ENV` | Recommended | Environment designation | `production` |
-| `SUPABASE_URL` | **Yes** | Live Supabase project URL | `https://<your-project-ref>.supabase.co` |
-| `SUPABASE_ANON_KEY` | **Yes** | Server-side public Supabase anonymous key | `eyJhbGciOi...` |
+| `SUPABASE_URL` | **Yes** | Live Supabase project URL | `https://hcliddnesvmfbywphcvt.supabase.co` |
+| `SUPABASE_ANON_KEY` | **Yes** | Server-side public Supabase anonymous key | `sb_publishable_...` |
 | `SUPABASE_JWT_AUDIENCE`| **Yes** | Expected JWT audience claim | `authenticated` |
-| `CORS_ORIGINS` | **Yes** | Comma-separated allowed frontend origins | `https://cortexdesk.vercel.app` (or Vercel preview domain) |
+| `CORS_ORIGINS` | **Yes** | Comma-separated allowed frontend origins | `https://<your-vercel-domain>.vercel.app` |
 
 > [!WARNING]
 > **Strict Principle of Least Privilege**:
@@ -106,73 +106,91 @@ Configure these runtime environment variables in the hosting dashboard (e.g., Re
 
 ---
 
-## 🚀 5. Backend Step-by-Step Deployment Instructions
+# PART 3: Production Integration & Security Hardening (Task 1.4.6)
 
-### Deploying to Render via Web Dashboard
+## 🔐 5. Supabase Authentication URL Architecture
 
-1. **Log in to Render**: Visit [dashboard.render.com](https://dashboard.render.com).
-2. **Create Web Service**:
-   - Click **New +** → **Web Service**.
-   - Connect your GitHub repository: `SABESHAN-M/cortexdesk`.
-3. **Configure Service Details**:
-   - **Name**: `cortexdesk-api`
-   - **Region**: Choose closest to Supabase region (e.g., Oregon, Frankfurt).
-   - **Branch**: `main`
-   - **Root Directory**: `backend`
-   - **Runtime**: `Python 3`
-   - **Build Command**: `pip install uv && uv sync --frozen --no-dev`
-   - **Start Command**: `uv run uvicorn main:app --host 0.0.0.0 --port $PORT`
-   - **Instance Type**: `Free`
-4. **Configure Environment Variables**:
-   Click **Advanced** → **Add Environment Variable**:
-   - `SUPABASE_URL` = your Supabase Project URL (`https://<project-ref>.supabase.co`)
-   - `SUPABASE_ANON_KEY` = your Supabase public Anon key
-   - `SUPABASE_JWT_AUDIENCE` = `authenticated`
-   - `APP_ENV` = `production`
-   - `CORS_ORIGINS` = `https://<your-vercel-app>.vercel.app` (add your Vercel URL once assigned)
-5. **Set Health Check**:
-   - Under **Health Check Path**, enter: `/health`
-6. **Deploy**:
-   - Click **Create Web Service**.
-   - Wait for the build and deployment to complete (~2 minutes).
+To ensure secure OAuth and PKCE authentication without open-redirect vulnerabilities:
 
-### Deploying via Render Blueprint (1-Click)
-1. In the Render Dashboard, click **New +** → **Blueprint**.
-2. Select repository `SABESHAN-M/cortexdesk`.
-3. Render automatically reads [render.yaml](file:///s:/Cortexdesk/render.yaml).
-4. Enter values for the un-synced variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `CORS_ORIGINS`).
-5. Click **Apply**.
+### 1. Site URL & Narrowly Scoped Redirect Allowlist
+In the Supabase Dashboard, navigate to **Authentication → URL Configuration**:
+
+- **Site URL**:
+  Set strictly to the verified Vercel production origin:
+  ```
+  https://<your-vercel-domain>.vercel.app
+  ```
+- **Redirect URLs (Narrowly Scoped Allowlist)**:
+  Avoid open wildcard domains. Explicitly list only authorized endpoints:
+  ```
+  https://<your-vercel-domain>.vercel.app/auth/callback
+  http://localhost:3000/auth/callback
+  http://127.0.0.1:3000/auth/callback
+  ```
+  *(If testing specific Vercel preview deployments, add exact branch URLs rather than global wildcard redirects).*
+
+### 2. GitHub OAuth Application Callback Architecture
+- In GitHub Developer Settings (**Settings → Developer settings → OAuth Apps → CortexDesk**):
+  - **Homepage URL**: `https://<your-vercel-domain>.vercel.app`
+  - **Authorization callback URL**: Must point to **Supabase Auth**, NOT Vercel:
+    ```
+    https://hcliddnesvmfbywphcvt.supabase.co/auth/v1/callback
+    ```
+  - *Rationale*: GitHub redirects to Supabase's auth handler, which completes code exchange and issues the session before redirecting to the Next.js frontend at `/auth/callback`.
 
 ---
 
-## 🔗 6. Connecting Frontend & Backend
+## 🛡️ 6. Production CORS Hardening
 
-Once the backend service completes deployment and provides a public URL (e.g., `https://cortexdesk-api.onrender.com`):
-
-1. **Verify Backend Health**:
-   ```bash
-   curl -i https://cortexdesk-api.onrender.com/health
-   # Expected: HTTP 200 OK
-   # Body: {"status": "ok"}
+In the backend hosting environment (Render):
+1. **Set `CORS_ORIGINS`**:
    ```
-2. **Update Vercel Frontend Configuration**:
-   - Open Vercel Dashboard → `cortexdesk` → **Project Settings** → **Environment Variables**.
-   - Set `NEXT_PUBLIC_API_URL` to `https://cortexdesk-api.onrender.com` for **Production** and **Preview**.
-3. **Redeploy Frontend**:
-   - Go to Vercel **Deployments** → click the latest deployment → **Redeploy**.
-4. **Update Backend CORS**:
-   - In Render Dashboard, ensure `CORS_ORIGINS` includes the exact Vercel production domain.
+   https://<your-vercel-domain>.vercel.app
+   ```
+2. **Security Rules Enforced by Backend**:
+   - **No Wildcards**: `backend/config.py` explicitly strips `*` from the allowed origins list.
+   - **No Trailing Slashes**: Origins must be schemes + domains without paths (e.g. `https://cortexdesk.vercel.app`, NOT `https://cortexdesk.vercel.app/`).
+   - **Credential Support**: `allow_credentials=True` requires exact origin matches; wildcard origins with credentials are fundamentally blocked by browser CORS specifications.
+   - **Local Isolation**: `http://localhost:3000` is kept in local `.env`, not in production.
 
 ---
 
-## ⏳ 7. Free-Tier Limitations & Operational Considerations
+## ⚡ 7. Cold-Start UX & Error Handling Architecture
 
-- **Cold Starts / Free-Tier Sleep**:
-  - Render and Koyeb free-tier instances spin down after 15 minutes of inbound HTTP inactivity.
-  - The first request after a sleep period triggers a cold start (typically 30–50 seconds).
-  - A slow initial response is expected behavior on free tiers, not an application defect.
-  - Subsequent requests respond in `< 50ms`.
-- **Health Check Resilience**:
-  - The `/health` endpoint executes in-memory without making external database or JWKS network requests, ensuring instant health checks even during cold starts.
-- **Rollback Procedure**:
-  - If a bad deployment occurs, use Render Dashboard → **Deploys** → select previous healthy deploy → **Rollback to this deploy**.
+Free-tier hosting providers (Render, Koyeb) automatically spin down instances after 15 minutes of inbound HTTP inactivity. The next request triggers a 30–50s cold start.
+
+### Frontend Implementation ([frontend/components/api-status.tsx](file:///s:/Cortexdesk/frontend/components/api-status.tsx))
+To provide a smooth, transparent user experience:
+
+1. **Delayed Indicator**:
+   - For fast requests (< 2.0s), displays standard `"API: checking..."` and transitions straight to `"API: connected"`.
+   - If the request takes longer than 2.0s, smoothly transitions to an animated amber pulse:
+     `"Waking up the server…"`
+2. **Duplicate Request Prevention**:
+   - Uses an internal in-flight reference guard (`inFlightRef`) to prevent redundant concurrent health probes.
+3. **Cancellation & Clean Timeout**:
+   - Bounded 45-second timeout via `AbortController` prevents hanging network connections.
+   - Automatically aborts pending requests on component unmount to prevent state updates on unmounted elements.
+4. **Failure Disambiguation**:
+   - Network failure / timeout -> `"API: unavailable"`
+   - Server HTTP 5xx/4xx error -> `"API: error (500)"`
+   - Never masks network errors or cold-start timeouts as authenticated states.
+5. **Interactive Retry Action**:
+   - Provides an accessible `"Retry"` button when in an error or unavailable state.
+
+---
+
+## 📋 8. Production Integration Verification Checklist
+
+When both frontend and backend deployments are live:
+
+- [ ] **Step 1: Discover URLs**: Record verified production frontend domain and backend URL.
+- [ ] **Step 2: Connect Frontend to Backend**: In Vercel, set `NEXT_PUBLIC_API_URL` to the live backend URL and trigger a redeploy.
+- [ ] **Step 3: Connect Backend to Frontend**: In Render, set `CORS_ORIGINS` to the Vercel production domain.
+- [ ] **Step 4: Verify Supabase Redirects**: Confirm Site URL and Redirect URLs are saved in the Supabase Dashboard.
+- [ ] **Step 5: Test OAuth Login**: Click "Sign in with GitHub" on production; verify the browser redirects back to the production domain (`/dashboard`) and not localhost.
+- [ ] **Step 6: Network Inspection**: In browser Developer Tools Network tab:
+  - Verify calls to `/health` return HTTP 200 with `access-control-allow-origin`.
+  - Verify calls to `/projects` attach `Authorization: Bearer <jwt>` and return user data.
+  - Verify that requests from an unauthorized origin receive no CORS allow header.
+- [ ] **Step 7: Sign-Out Verification**: Click Logout on the dashboard; confirm the user session is revoked and redirection to `/login` occurs.
