@@ -6,8 +6,10 @@ export default async function HomePage() {
   let user = null;
   try {
     const supabase = await createClient();
-    const { data } = await supabase.auth.getUser();
-    user = data?.user || null;
+    const { data, error } = await supabase.auth.getUser();
+    if (!error && data?.user) {
+      user = data.user;
+    }
   } catch {
     // Graceful fallback if Supabase credentials are placeholder in development
     user = null;

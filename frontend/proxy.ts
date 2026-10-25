@@ -69,9 +69,41 @@ export async function proxy(request: NextRequest) {
 
   // Authenticate user identity with Supabase Auth server and refresh session tokens if expired.
   // Note: No logic should run between createServerClient and getUser().
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error || !data?.user) {
+      // If the refresh token is missing, expired, revoked, or invalid, clear all supabase auth cookies
+      // from both request (so downstream Server Components don't fail) and response (so the browser discards them).
+      const sbCookies = request.cookies
+        .getAll()
+        .filter((c) => c.name.startsWith("sb-"));
+
+      if (sbCookies.length > 0) {
+        sbCookies.forEach((c) => request.cookies.delete(c.name));
+        response = NextResponse.next({ request });
+        sbCookies.forEach((c) =>
+          response.cookies.set(c.name, "", { maxAge: 0, path: "/" })
+        );
+      }
+      user = null;
+    } else {
+      user = data.user;
+    }
+  } catch {
+    const sbCookies = request.cookies
+      .getAll()
+      .filter((c) => c.name.startsWith("sb-"));
+
+    if (sbCookies.length > 0) {
+      sbCookies.forEach((c) => request.cookies.delete(c.name));
+      response = NextResponse.next({ request });
+      sbCookies.forEach((c) =>
+        response.cookies.set(c.name, "", { maxAge: 0, path: "/" })
+      );
+    }
+    user = null;
+  }
 
   const { pathname } = request.nextUrl;
 
