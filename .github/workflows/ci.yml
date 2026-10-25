@@ -60,6 +60,7 @@ jobs:
       GEMINI_API_KEY: dummy-gemini-test-key-for-ci-build-only
       LLM_MODEL: gemini-2.0-flash
       EMBED_MODEL: text-embedding-004
+      TAVILY_API_KEY: dummy-tavily-test-key-for-ci-build-only
 
     steps:
       - name: Checkout repository

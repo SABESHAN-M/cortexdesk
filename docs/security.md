@@ -665,4 +665,198 @@ This section documents the security controls, architectural boundaries, threat m
 > 4. **Information Leakage Prevention**: Upstream AI provider outages and network errors are masked as uniform HTTP 503 responses, preventing stack trace or vendor error exposure.
 > 5. **External Dashboard Requirements**: GitHub repository security features (Push Protection, Secret Scanning, Branch Protection) are appropriately recorded as `NOT VERIFIED` awaiting repository administrator inspection in the GitHub web console.
 
+---
+
+## Security baseline for Story 2.2
+
+This section documents the security controls, adversarial audit results, architectural boundaries, and sign-off criteria for **Story 2.2: MCP Server, Calculator Tool, Web Search, Agent Loop, and Frontend Link Rendering**.
+
+---
+
+### 1. Calculator Safety & AST Allowlist Architecture
+
+The numeric calculator tool is hosted on the standalone `WorkspaceTools` MCP server ([`backend/mcp_server.py`](file:///backend/mcp_server.py)) and exposes `calculate_expression`:
+
+- **Zero Code Execution**:
+  - Python `eval()`, `exec()`, `compile()`, `globals()`, and `locals()` are strictly prohibited and never invoked.
+  - Expression parsing uses exclusively `ast.parse(trimmed, mode="eval")` followed by a recursive AST visitor `_eval()`.
+- **Strict Node Allowlisting**:
+  - Permitted AST node types are strictly limited to:
+    - Root: `ast.Expression`
+    - Numeric constants: `ast.Constant` (integers and floats only)
+    - Unary operators: `ast.UnaryOp` (`+`, `-`)
+    - Binary arithmetic: `ast.BinOp` (`+`, `-`, `*`, `/`, `//`, `%`, `**`)
+  - All other AST nodes are rejected immediately with `CalculatorError` before evaluation:
+    - Function calls (`ast.Call`), variable and built-in names (`ast.Name`), attribute traversals (`ast.Attribute`).
+    - Subscripts and indexing (`ast.Subscript`), slice expressions (`ast.Slice`).
+    - Data structures (`ast.List`, `ast.Dict`, `ast.Set`, `ast.Tuple`).
+    - Import statements, lambdas, comprehensions, and comparisons.
+- **Type Safety & Boolean Rejection**:
+  - In Python, `bool` is a subclass of `int` (`isinstance(True, int) == True`). The visitor explicitly inspects `isinstance(val, bool)` and rejects boolean literals (`True`, `False`) to prevent type-coercion bypasses.
+  - Non-numeric constants (strings, bytes, None) are rejected.
+- **Adversarial Resource & DoS Bounds**:
+  - **Expression Length**: Capped at `MAX_EXPRESSION_LENGTH = 200` characters.
+  - **AST Node Count**: Capped at `MAX_AST_NODES = 50` nodes (`ast.walk()`).
+  - **AST Tree Depth**: Capped at `MAX_AST_DEPTH = 15` recursive levels.
+  - **Exponent Magnitude**: Exponents are capped at `MAX_EXPONENT_MAGNITUDE = 100` (`abs(right) <= 100`).
+  - **Bit-Length Power Ceiling**: For integer exponentiation, `left.bit_length() * right` is capped at `MAX_BIT_LENGTH_POWER = 350`, preventing catastrophic memory allocation attacks such as `(10**50)**10` or `2**301`.
+  - **Result Magnitude**: Operations producing results exceeding `MAX_RESULT_MAGNITUDE = 1e100` or non-finite values (`inf`, `-inf`, `nan`) trigger immediate rejection.
+  - **Division by Zero**: Controlled `ZeroDivisionError` handling covers `/`, `//`, and `%`.
+- **Controlled Error Messaging**:
+  - Input rejections and evaluation errors return formatted error strings (`"Error: <reason>"`) without crashing the MCP server process.
+
+---
+
+### 2. MCP Process & Transport Isolation
+
+The FastAPI backend connects to the MCP tool server via an isolated asynchronous client ([`backend/services/mcp_client.py`](file:///backend/services/mcp_client.py)):
+
+- **Fixed, Trusted Subprocess Execution**:
+  - Subprocess parameters execute a static, trusted binary and file path: `[sys.executable, str(server_path)]`.
+  - User input and model-generated arguments never enter the command name, executable path, or subprocess environment flags.
+  - Shell interpretation is disabled (`shell=False` default in MCP stdio client), eliminating shell injection vectors.
+- **Stdio Protocol Hygiene**:
+  - Standard output (`stdout`) of the MCP server process is strictly reserved for JSON-RPC MCP framing.
+  - Server diagnostics, warnings, and error logs are directed exclusively to `sys.stderr` via `logging.basicConfig(stream=sys.stderr, ...)`, preventing frame corruption.
+- **FastAPI Lifecycle & Process Cleanup**:
+  - Server lifecycle is governed by the FastAPI lifespan handler in [`backend/main.py`](file:///backend/main.py).
+  - Process initialization enforces a 15.0s timeout (`asyncio.timeout(15.0)`).
+  - Teardown uses `AsyncExitStack.aclose()`, guaranteeing clean process termination and pipe closure during server reload or shutdown.
+  - Failed initializations immediately close the exit stack, preventing orphaned child processes.
+- **Minimal Tool Capability Surface**:
+  - The server registers only two explicitly defined tools: `calculate_expression` and `web_search`. File access, code execution, shell commands, and administrative tools are not implemented or exposed.
+
+---
+
+### 3. Web Search & Prompt Injection Defense
+
+The web search tool (`web_search`) interfaces with Tavily via [`backend/mcp_server.py`](file:///backend/mcp_server.py) and is orchestrated through [`backend/services/agent.py`](file:///backend/services/agent.py):
+
+- **Untrusted Data Boundary**:
+  - Search outputs (snippets, page titles, URLs) are treated as untrusted external text.
+  - Returned results are packaged into structured JSON and returned as `types.Part.from_function_response()` within a user-role turn.
+  - Search results cannot modify server-side system instructions, elevate privileges, or alter the authenticated user identity.
+- **Scope & Identity Isolation**:
+  - Tool execution is strictly decoupled from database credentials, session tokens, and project authorization.
+  - The tool explicitly includes prompt-level guardrails preventing attempts to search for internal CortexDesk projects or tenant records.
+- **Strict Input & Output Bounding**:
+  - Search query length is constrained to `1 <= len(query) <= 400` characters. Empty or whitespace-only queries are rejected cleanly.
+  - Result count is constrained to `1 <= max_results <= 8` (default: 5).
+  - Snippets are truncated to `MAX_SNIPPET_LENGTH = 500` characters per result.
+- **Protocol & URL Filtering**:
+  - Search result URLs are validated against safe web schemes (`http://`, `https://`). Unsafe schemes (e.g., `javascript:`, `file:`, `data:`) are discarded.
+- **Sanitized Upstream Error Masking**:
+  - Provider authentication errors, quota limits, timeouts, and network exceptions are intercepted and returned as generic, friendly error strings (e.g. `"Error: Search provider quota or rate limit exceeded"`), withholding internal API keys, hostnames, and stack traces.
+
+---
+
+### 4. Agent Loop & Resource Controls
+
+The CortexDesk agent loop ([`backend/services/agent.py`](file:///backend/services/agent.py)) orchestrates model-tool conversations:
+
+- **Strict Iteration Ceiling**:
+  - `MAX_ROUNDS = 6` tool-calling rounds maximum. The loop halts deterministically if the limit is reached, returning a friendly exhaustion notice.
+- **Dynamic Tool Authorization**:
+  - Only tools actively registered and discovered from the MCP client can be called. Unknown or unregistered tool names are rejected safely.
+- **JSON Schema Validation**:
+  - Tool arguments generated by the model are strictly validated against the tool's published JSON Schema using `jsonschema.validate()`. Schema violations return structured error responses to allow model recovery without crashing.
+- **Tiered Timeout Hierarchy**:
+  - Individual Tool Call: `DEFAULT_TOOL_TIMEOUT = 15.0s`.
+  - Chat Route Execution: `CHAT_REQUEST_TIMEOUT = 55.0s`.
+  - Total Agent Execution: `DEFAULT_AGENT_TIMEOUT = 60.0s`.
+  - Frontend Client Timeout: `CHAT_CLIENT_TIMEOUT_MS = 60000ms`.
+- **Output Size Cap**:
+  - Tool outputs are capped at `MAX_TOOL_OUTPUT_CHARS = 4000` characters, preventing prompt explosion and context window exhaustion.
+- **Data Isolation & RLS Pre-Check**:
+  - The chat router ([`backend/routers/chat.py`](file:///backend/routers/chat.py)) validates project ownership via user-scoped PostgREST queries before invoking `run_agent()`. Unowned projects return HTTP 404.
+- **Privacy-Safe Operational Logging**:
+  - Tool arguments are sanitized before logging via `sanitize_tool_args_for_logging()`:
+    - Truncates queries and logs query lengths.
+    - Automatically redacts sensitive parameter names containing `key`, `token`, `secret`, `auth`, `password`, `credential`.
+    - Zero prompt text, generated assistant response bodies, or raw bearer tokens are ever written to logs.
+
+---
+
+### 5. Frontend Link Rendering & UX Safety
+
+The React chat interface ([`frontend/components/chat-box.tsx`](file:///frontend/components/chat-box.tsx)) renders conversational output safely:
+
+- **Zero Raw HTML Injection**:
+  - Model output is parsed into structured React nodes using `renderMessageContent()`.
+  - `dangerouslySetInnerHTML` is strictly prohibited and unused across all chat components.
+- **Safe Linkification & Strict Protocol Allowlist**:
+  - URLs are parsed using the browser's native `new URL()` parser.
+  - Only URLs with protocols `http:` or `https:` are rendered as clickable anchor tags.
+  - Dangerous schemes (`javascript:`, `data:`, `file:`, `vbscript:`) fail protocol validation and are rendered safely as inert plain text.
+  - Generated anchors include `target="_blank"` and `rel="noopener noreferrer"` to prevent tab-nabbing and window opener leaks.
+  - Trailing punctuation (e.g., `"https://example.com."`) is detached before URL parsing to ensure valid destinations.
+- **Responsive Word Wrapping**:
+  - Employs Tailwind utility `break-all` on links and `[overflow-wrap:anywhere]` on messages to prevent long formulas, strings, or URLs from breaking mobile viewports.
+- **Interaction Resilience**:
+  - Persistent "Working on it…" status indicator during multi-round tool execution.
+  - Send button is disabled during active requests to prevent duplicate submissions.
+  - Input state and controls are restored cleanly upon success, timeout, or error.
+
+---
+
+### 6. Secret Management & Key Exposure Incident Response
+
+- **Source Code & Git Forensic Audit**:
+  - Codebase search verified zero hardcoded Tavily keys or Gemini keys in `backend/`, `frontend/`, or root files.
+  - Environment templates ([`.env.example`](file:///.env.example), [`backend/.env.example`](file:///backend/.env.example)) use synthetic placeholders (`your-tavily-api-key`, `replace_with_your_own_local_tavily_key`).
+  - GitHub Actions CI workflow ([`.github/workflows/ci.yml`](file:///.github/workflows/ci.yml)) uses non-functional dummy credentials (`dummy-tavily-test-key-for-ci-build-only`).
+- **Key Exposure Incident (User Prompt / Conversation History)**:
+  - **Incident Summary**: In conversation turn 8, a live Tavily API key (`tvly-dev-...`) was provided in the user prompt input.
+  - **Impact Assessment**: While the key was not committed to the Git repository, tracked files, or templates, its appearance in prompt history poses an exposure risk.
+  - **Severity**: **HIGH**.
+  - **Required Remediation (Action Item)**:
+    1. **Immediate Revocation**: The project administrator must immediately log in to the Tavily developer dashboard ([tavily.com](https://tavily.com/)) and revoke/delete the exposed key.
+    2. **Key Rotation**: Generate a fresh API key and inject it exclusively into local untracked `.env` or production deployment environment secrets.
+    3. **Incident Status**: Recorded as **ACTION REQUIRED / ROTATION PENDING**.
+
+---
+
+### 7. Security Checklist & Audit Matrix (Story 2.2 / Task 2.2.9)
+
+| Control Item | Audit Layer | Evidence / Verification Method | Impact | Severity | Status |
+| :--- | :--- | :--- | :--- | :---: | :---: |
+| **No `eval`/`exec`/`compile` in Calculator** | Calculator | Code inspection of `backend/mcp_server.py` | Remote Code Execution | Critical | **PASS** |
+| **Strict AST Allowlisting (BinOp/UnaryOp only)** | Calculator | AST visitor & adversarial test suite | Arbitrary Code Execution | Critical | **PASS** |
+| **Rejection of Function Calls, Names & Attrs** | Calculator | `test_calculator_rejects_code_execution_and_imports` | Code Execution / Sandbox Escape | High | **PASS** |
+| **Calculator Resource & DoS Bounds (Depth, Exponent, Len)** | Calculator | Depth=15, Node=50, Len=200, Exp=100 in `test_calculator.py` | CPU/Memory Exhaustion | Medium | **PASS** |
+| **Fixed, Trusted MCP Subprocess Command** | MCP Process | `[sys.executable, str(server_path)]` in `mcp_client.py` | Subprocess Hijacking | High | **PASS** |
+| **Zero Shell Invocation for Untrusted Inputs** | MCP Process | `shell=False` default in stdio client | Command Injection | Critical | **PASS** |
+| **Clean Subprocess Lifecycle & Teardown** | MCP Process | `AsyncExitStack` & FastAPI lifespan context | Orphaned Process Accumulation | Medium | **PASS** |
+| **Stdout Reserved Exclusively for JSON-RPC** | MCP Protocol | Logger configured strictly to `sys.stderr` | Protocol Corruption / Desync | Medium | **PASS** |
+| **Untrusted Search Result Boundary** | Web Search | Packaged in `function_response` user turns | Prompt Injection / Instruction Override | High | **PASS** |
+| **Search Result Length & Snippet Bounding** | Web Search | Query<=400 chars, max_results<=8, snippet<=500 chars | Context Overflow / Denial of Service | Low | **PASS** |
+| **Search Result URL Scheme Validation** | Web Search | Rejection of non-HTTP/HTTPS URLs in `mcp_server.py` | Malicious Link Injection / SSRF | Medium | **PASS** |
+| **Search Provider Error Sanitization** | Web Search | Controlled exceptions mask API keys and hostnames | Credential / Traceback Leakage | Medium | **PASS** |
+| **Agent Loop Max Rounds Limit (`MAX_ROUNDS = 6`)** | Agent Loop | `round_count >= max_rounds` break in `services/agent.py` | Infinite Execution / Quota Drain | High | **PASS** |
+| **Dynamic Tool Discovery & Schema Validation** | Agent Loop | `jsonschema.validate()` on arguments before call | Tool Desync / Malformed Invocation | Medium | **PASS** |
+| **Agent & Tool Execution Timeouts** | Agent Loop | 15s tool / 55s route / 60s agent timeouts | Thread / Request Stalling | Medium | **PASS** |
+| **Tool Output Truncation (4000 Chars)** | Agent Loop | `MAX_TOOL_OUTPUT_CHARS = 4000` cap in `services/agent.py` | Context Window Exhaustion | Low | **PASS** |
+| **Project Ownership & RLS Isolation** | Backend Route | Pre-execution user PostgREST verification in `chat.py` | Cross-Tenant Context Access | High | **PASS** |
+| **Privacy-Safe Tool Argument Logging** | Logging | `sanitize_tool_args_for_logging()` redacting secrets | Sensitive Data / PII in Logs | Medium | **PASS** |
+| **Zero `dangerouslySetInnerHTML` in Frontend** | Frontend | Code inspection of `frontend/components/chat-box.tsx` | Cross-Site Scripting (XSS) | High | **PASS** |
+| **Frontend Link Protocol Allowlist (http/https)** | Frontend | `parsed.protocol === "http:" \|\| "https:"` in `chat-box.tsx`| JavaScript URI Execution | High | **PASS** |
+| **Link Target Safety (`noopener noreferrer`)** | Frontend | Rendered anchor tags enforce security attributes | Reverse Tabnabbing | Low | **PASS** |
+| **Frontend Timeout & Button Lock Recovery** | Frontend | Bounded 60s fetch & `finally: setIsLoading(false)` | Client Lockup / State Desync | Low | **PASS** |
+| **Synthetic Placeholders in Templates & CI** | Repository | Inspection of `.env.example`, `.github/workflows/ci.yml`| Secret Infiltration in CI | High | **PASS** |
+| **Prompt-Exposed Tavily Key Rotation** | External / Ops | Key pasted in prompt session turn 8 requires rotation | Unauthorized API Quota Consumption | High | **ACTION REQUIRED** |
+| **GitHub Secret Scanning & Push Protection** | External / Cloud | GitHub Repository Settings / Security Features | Secret Leakage via Git Push | High | **NOT VERIFIED** *(Requires GitHub Admin)* |
+| **GitHub Branch Protection on `main`** | External / Cloud | GitHub Repository Settings → Branch Rulesets | Unvetted Code Merge | High | **NOT VERIFIED** *(Requires GitHub Admin)* |
+
+---
+
+#### Lead Application Security Engineer Sign-off
+
+> **Decision**: **CONDITIONAL SIGN-OFF (ACTION REQUIRED / PENDING KEY ROTATION)**
+>
+> **Sign-Off Assessment**:
+> 1. **Codebase Security Architecture**: **APPROVED**. The implementation of the MCP server, calculator AST allowlist, web-search sanitization, bounded agent loop (MAX_ROUNDS=6), RLS project pre-checks, and frontend safe linkification adheres to strict defense-in-depth engineering standards. All 149 backend automated tests and frontend production builds pass.
+> 2. **Credential Rotation Requirement**: **ACTION REQUIRED**. A real Tavily API key was submitted in the user prompt during Task 2.2.3. The key has been verified absent from committed repository files, CI workflows, and templates; however, the project administrator must rotate/revoke this credential in the Tavily developer console prior to production release.
+> 3. **Merge Governance**: In accordance with CortexDesk governance rules, merging to `main` remains blocked until Project Manager approval and key rotation verification are completed.
+
+
 

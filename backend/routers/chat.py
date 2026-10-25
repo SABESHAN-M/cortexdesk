@@ -18,6 +18,7 @@ Security & Architectural Principles:
 """
 
 from collections import deque
+import asyncio
 import logging
 import threading
 import time
@@ -31,6 +32,7 @@ from supabase import Client
 from auth import get_current_user, AuthenticatedUser
 from config import get_settings, Settings
 from db import get_user_db_client
+from services.agent import run_agent
 from services.llm import llm
 
 logger = logging.getLogger(__name__)
@@ -39,8 +41,10 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 DEFAULT_CHAT_SYSTEM_PROMPT = (
     "You are the CortexDesk AI assistant, an intelligent, helpful, and concise companion "
-    "for knowledge management and project productivity."
+    "for knowledge management and project productivity. When providing factual information "
+    "retrieved from web search, include relevant supporting URLs."
 )
+CHAT_REQUEST_TIMEOUT = 55.0
 
 
 # ==============================================================================
@@ -221,17 +225,22 @@ async def chat(
                 detail="Failed to verify project context",
             )
 
-    # 3. LLM Generation
+    # 3. Agent Execution with Bounded Timeout & Client Cancellation Safety
     start_time = time.perf_counter()
     try:
-        reply = await llm.complete(
-            prompt=payload.message,
-            system=DEFAULT_CHAT_SYSTEM_PROMPT,
-        )
+        async with asyncio.timeout(CHAT_REQUEST_TIMEOUT):
+            reply = await run_agent(
+                prompt=payload.message,
+                system=DEFAULT_CHAT_SYSTEM_PROMPT,
+                timeout=CHAT_REQUEST_TIMEOUT,
+            )
+    except asyncio.CancelledError:
+        logger.info("Chat request cancelled by client disconnect")
+        raise
     except Exception as exc:
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.error(
-            "Chat completion provider failure: error_type=%s duration_ms=%s",
+            "Chat agent provider failure: error_type=%s duration_ms=%s",
             type(exc).__name__,
             duration_ms,
         )

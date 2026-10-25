@@ -33,3 +33,5 @@ services:
         sync: false
       - key: EMBED_MODEL
         sync: false
+      - key: TAVILY_API_KEY
+        sync: false
