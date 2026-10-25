@@ -194,3 +194,29 @@ When both frontend and backend deployments are live:
   - Verify calls to `/projects` attach `Authorization: Bearer <jwt>` and return user data.
   - Verify that requests from an unauthorized origin receive no CORS allow header.
 - [ ] **Step 7: Sign-Out Verification**: Click Logout on the dashboard; confirm the user session is revoked and redirection to `/login` occurs.
+
+---
+
+## 🔧 9. Production Integration Troubleshooting Guide
+
+| Problem / Error | Root Cause | Resolution & Verification |
+| :--- | :--- | :--- |
+| **`exchange_code_failed` during OAuth callback** | 1. Next.js middleware clears PKCE code-verifier cookie prior to exchange.<br>2. GitHub OAuth App points to Vercel instead of Supabase.<br>3. Mismatched redirect URL in Supabase dashboard. | • Verify `frontend/proxy.ts` bypasses `/auth` routes to preserve `sb-*-code-verifier` cookies.<br>• Verify GitHub OAuth App callback URL is strictly `https://<ref>.supabase.co/auth/v1/callback`.<br>• Verify Supabase Redirect URLs includes `https://<frontend-domain>/auth/callback`. |
+| **`No 'Access-Control-Allow-Origin' header` (CORS)** | 1. Trailing slash in `CORS_ORIGINS` (e.g., `https://cortexdesk.vercel.app/`).<br>2. Missing scheme (e.g., `cortexdesk.vercel.app`).<br>3. Request uses wildcard `*` with credentials. | • Configure `CORS_ORIGINS` with exact protocol and domain, no trailing slash (e.g. `https://cortexdesk.vercel.app`).<br>• `backend/config.py` automatically strips trailing slashes and rejects wildcards.<br>• Test preflight with: `curl -I -X OPTIONS https://<api-url>/health -H "Origin: https://<frontend-domain>"` |
+| **"API: unavailable" / Cold-Start Delay** | Render/Koyeb free-tier instances spin down after 15 min of inactivity, requiring 30–50s to reboot. | • The frontend `ApiStatus` component automatically shows `"Waking up the server…"` after 2.0s.<br>• Requests are bounded to a 45s timeout.<br>• Click the accessible `"Retry"` button once the instance spins up. |
+| **`Invalid Refresh Token: Refresh Token Not Found`** | Stale session cookie in browser after user was deleted or token revoked. | • `frontend/proxy.ts` traps `refresh_token_not_found` and safely clears expired `sb-*` session cookies, redirecting cleanly to `/login`. |
+| **401 Unauthorized on `/projects`** | Missing or malformed `Authorization: Bearer <token>` header in API calls. | • Confirm client uses `createBrowserClient` to acquire session token.<br>• Confirm API client wrapper attaches `Bearer ${session.access_token}`.<br>• Verify token audience is `authenticated`. |
+
+---
+
+## 🎯 10. Task 1.4.6 Acceptance Criteria & Verification Status
+
+| Requirement | Implementation Artifact | Status | Verification Detail |
+| :--- | :--- | :---: | :--- |
+| **1. Discover actual deployment URLs** | [docs/deployment.md](file:///s:/Cortexdesk/docs/deployment.md) | **BLOCKED** | Ready for user-provided live production URLs; no placeholder/invented domains used in code. |
+| **2. Narrowly scoped Supabase redirects** | Supabase Dashboard URL settings | **BLOCKED** | Configuration documented: Site URL = Vercel origin; Redirect URL = `/auth/callback`; GitHub App = Supabase `/auth/v1/callback`. Remote dashboard change requires user execution. |
+| **3. Production CORS configuration** | [backend/config.py](file:///s:/Cortexdesk/backend/config.py) | **VERIFIED** | Enforces exact origins; strips wildcards; trims trailing slashes; supports credentials; separates local dev. |
+| **4. Cold-start resilience UX** | [frontend/components/api-status.tsx](file:///s:/Cortexdesk/frontend/components/api-status.tsx) | **VERIFIED** | 2.0s delayed `"Waking up the server…"`; bounded 45s timeout; duplicate suppression; accessible retry button. |
+| **5. PKCE OAuth verifier protection** | [frontend/proxy.ts](file:///s:/Cortexdesk/frontend/proxy.ts) | **VERIFIED** | Preserves `sb-*-code-verifier` during `/auth` routes; logs exchange errors; blocks open redirect exploits. |
+| **6. Least-privilege DB security** | [backend/db.py](file:///s:/Cortexdesk/backend/db.py) | **VERIFIED** | Uses user-scoped PostgREST client with caller's Bearer JWT and anon key; zero `service_role` usage. |
+| **7. Production integration testing** | Live environments | **BLOCKED** | Remote end-to-end testing against live third-party dashboards blocked pending user cloud deployment. |
