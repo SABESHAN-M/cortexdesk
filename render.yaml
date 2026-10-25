@@ -8,8 +8,8 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: pip install uv && uv sync --frozen --no-dev
-    startCommand: uv run --active uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: pip install uv && uv sync --active --frozen --no-dev
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:

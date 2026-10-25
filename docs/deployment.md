@@ -68,8 +68,8 @@ Render natively executes Python web services and can be configured manually in t
 | **Name** | `cortexdesk-api` | Public hostname slug |
 | **Environment / Runtime** | **Python 3** | Uses `.python-version` (3.12) |
 | **Root Directory** | `backend` | Isolates backend from root monorepo |
-| **Build Command** | `pip install uv && uv sync --frozen --no-dev` | Deterministic dependency sync from `uv.lock` |
-| **Start Command** | `uv run uvicorn main:app --host 0.0.0.0 --port $PORT` | Binds to dynamic port injected by Render |
+| **Build Command** | `pip install uv && uv sync --active --frozen --no-dev` | Deterministic dependency sync into Render active environment |
+| **Start Command** | `uvicorn main:app --host 0.0.0.0 --port $PORT` | Binds to dynamic port injected by Render |
 | **Branch** | `main` | Continuous deployment from `main` |
 | **Health Check Path** | `/health` | Public endpoint returning `{"status": "ok"}` |
 | **Auto-Deploy** | **Yes** | Redeploys automatically on merge to `main` |
