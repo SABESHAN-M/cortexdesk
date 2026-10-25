@@ -21,7 +21,7 @@ jobs:
     env:
       NEXT_PUBLIC_APP_NAME: cortexdesk
       NEXT_PUBLIC_API_URL: http://localhost:8000
-      NEXT_PUBLIC_SUPABASE_URL: https://placeholder-project.supabase.co
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODMwMjQ0MDB9.dummy-signature-for-ci-build-only
 
     steps:
@@ -52,7 +52,7 @@ jobs:
       run:
         working-directory: backend
     env:
-      SUPABASE_URL: https://placeholder-project.supabase.co
+      SUPABASE_URL: https://example.supabase.co
       SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODMwMjQ0MDB9.dummy-signature-for-ci-build-only
       SUPABASE_JWT_AUDIENCE: authenticated
       CORS_ORIGINS: http://localhost:3000
