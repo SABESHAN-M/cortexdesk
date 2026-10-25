@@ -76,9 +76,29 @@ export class ApiResponseError extends Error {
   }
 }
 
-export const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-).replace(/\/+$/, "");
+/**
+ * Resolves the backend base URL dynamically depending on the execution context:
+ * 1. Server-side (functions, Server Actions, Route Handlers):
+ *    Prefers the internal service binding `BACKEND_URL` injected by Vercel Services.
+ * 2. Client-side (browser components):
+ *    Uses `NEXT_PUBLIC_API_URL` if configured (e.g. for standalone local dev), or
+ *    defaults to relative `/api` when hosted under Vercel's unified services domain.
+ */
+export function getApiBaseUrl(): string {
+  if (typeof window === "undefined" && process.env.BACKEND_URL) {
+    return process.env.BACKEND_URL.replace(/\/+$/, "");
+  }
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "");
+  }
+  // When running in the browser without an explicit external API URL, use same-domain /api rewrite
+  if (typeof window !== "undefined") {
+    return "/api";
+  }
+  return "http://localhost:8000";
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 /**
  * Validates that an endpoint path is strictly relative and resolves it
@@ -97,7 +117,8 @@ export function resolveBackendUrl(endpoint: string): string {
   }
 
   const cleanPath = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-  return `${API_BASE_URL}${cleanPath}`;
+  const baseUrl = getApiBaseUrl();
+  return `${baseUrl}${cleanPath}`;
 }
 
 export interface AuthenticatedApiOptions extends RequestInit {
