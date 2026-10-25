@@ -32,83 +32,90 @@ export function ApiStatus({
   const inFlightRef = useRef<boolean>(false);
   const activeControllerRef = useRef<AbortController | null>(null);
 
-  const checkHealth = useCallback(async () => {
-    // Prevent duplicate concurrent requests
+  const runHealthCheck = useCallback(
+    (controller: AbortController, onComplete: () => void) => {
+      const slowTimer = setTimeout(() => {
+        setState("waking");
+      }, slowThresholdMs);
+
+      const timeoutTimer = setTimeout(() => {
+        controller.abort("TIMEOUT");
+      }, timeoutMs);
+
+      authenticatedFetch("/health", {
+        allowAnonymous: true,
+        signal: controller.signal,
+        headers: { Accept: "application/json" },
+      })
+        .then(async (response) => {
+          clearTimeout(slowTimer);
+          clearTimeout(timeoutTimer);
+          setHttpStatus(response.status);
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.status === "ok") {
+              setState("connected");
+            } else {
+              setState("http_error");
+            }
+          } else {
+            setState("http_error");
+          }
+        })
+        .catch((err: unknown) => {
+          clearTimeout(slowTimer);
+          clearTimeout(timeoutTimer);
+          if (err instanceof DOMException && err.name === "AbortError") {
+            if (controller.signal.reason === "TIMEOUT") {
+              setState("unavailable");
+            }
+            return;
+          }
+          setState("unavailable");
+        })
+        .finally(() => {
+          onComplete();
+        });
+
+      return () => {
+        clearTimeout(slowTimer);
+        clearTimeout(timeoutTimer);
+      };
+    },
+    [slowThresholdMs, timeoutMs]
+  );
+
+  const handleRetry = useCallback(() => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
-
     setState("checking");
     setHttpStatus(null);
 
-    // Abort any prior in-flight request
     if (activeControllerRef.current) {
       activeControllerRef.current.abort();
     }
     const controller = new AbortController();
     activeControllerRef.current = controller;
 
-    // Timer to transition to friendly "Waking up server..." after delay
-    const slowTimer = setTimeout(() => {
-      if (inFlightRef.current) {
-        setState("waking");
-      }
-    }, slowThresholdMs);
-
-    // Timer to abort if backend takes longer than max timeout
-    const timeoutTimer = setTimeout(() => {
-      controller.abort("TIMEOUT");
-    }, timeoutMs);
-
-    try {
-      const response = await authenticatedFetch("/health", {
-        allowAnonymous: true,
-        signal: controller.signal,
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      clearTimeout(slowTimer);
-      clearTimeout(timeoutTimer);
-
-      if (!response.ok) {
-        setHttpStatus(response.status);
-        setState("http_error");
-        return;
-      }
-
-      const data = await response.json();
-      if (data && data.status === "ok") {
-        setState("connected");
-      } else {
-        setState("http_error");
-      }
-    } catch (err: unknown) {
-      clearTimeout(slowTimer);
-      clearTimeout(timeoutTimer);
-
-      if (err instanceof DOMException && err.name === "AbortError") {
-        // Distinguish explicit timeout from component unmount cancellation
-        if (controller.signal.reason === "TIMEOUT") {
-          setState("unavailable");
-        }
-        return;
-      }
-      setState("unavailable");
-    } finally {
+    runHealthCheck(controller, () => {
       inFlightRef.current = false;
-    }
-  }, [slowThresholdMs, timeoutMs]);
+    });
+  }, [runHealthCheck]);
 
   useEffect(() => {
-    checkHealth();
+    inFlightRef.current = true;
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+
+    const cleanupTimers = runHealthCheck(controller, () => {
+      inFlightRef.current = false;
+    });
 
     return () => {
-      if (activeControllerRef.current) {
-        activeControllerRef.current.abort();
-      }
+      cleanupTimers();
+      controller.abort();
     };
-  }, [checkHealth]);
+  }, [runHealthCheck]);
 
   const isLoading = state === "checking" || state === "waking";
 
@@ -181,7 +188,7 @@ export function ApiStatus({
       {(state === "http_error" || state === "unavailable") && (
         <button
           type="button"
-          onClick={() => checkHealth()}
+          onClick={handleRetry}
           aria-label="Retry backend connection check"
           className="ml-1 cursor-pointer rounded px-1.5 py-0.5 text-[10px] font-semibold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition"
         >
