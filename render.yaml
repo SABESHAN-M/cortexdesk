@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: cortexdesk-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: uv run uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    branch: main
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: APP_NAME
+        value: cortexdesk
+      - key: APP_ENV
+        value: production
+      - key: SUPABASE_JWT_AUDIENCE
+        value: authenticated
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false

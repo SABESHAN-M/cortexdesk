@@ -3,8 +3,9 @@ const path = require('path');
 
 const ROOT_DIR = path.resolve(__dirname, '..');
 const frontendEnv = path.join(ROOT_DIR, 'frontend', '.env.local');
+const backendEnv = path.join(ROOT_DIR, 'backend', '.env');
 
-console.log('🔍 Checking Cortexdesk environment configuration...\n');
+console.log('🔍 Checking CortexDesk environment configuration...\n');
 
 let issuesFound = 0;
 
@@ -13,12 +14,24 @@ if (!fs.existsSync(frontendEnv)) {
   issuesFound++;
 } else {
   const content = fs.readFileSync(frontendEnv, 'utf8');
-  if (content.includes('YOUR_PROJECT_REF') || content.includes('YOUR_PUBLISHABLE_OR_ANON_KEY')) {
-    console.warn('⚠️  frontend/.env.local contains placeholder Supabase values. Please update them with your real project keys.');
+  if (
+    content.includes('YOUR_PROJECT_REF') ||
+    content.includes('your-project-ref') ||
+    content.includes('YOUR_PUBLISHABLE_OR_ANON_KEY') ||
+    content.includes('your-supabase-anon')
+  ) {
+    console.warn('⚠️  frontend/.env.local contains placeholder Supabase values. Update with your project keys when ready.');
     issuesFound++;
   } else {
-    console.log('✅ frontend/.env.local is present and configured.');
+    console.log('✅ frontend/.env.local is present.');
   }
+}
+
+if (!fs.existsSync(backendEnv)) {
+  console.warn('⚠️  backend/.env is missing! Run `npm run setup` to create it from template.');
+  issuesFound++;
+} else {
+  console.log('✅ backend/.env is present.');
 }
 
 if (issuesFound === 0) {
