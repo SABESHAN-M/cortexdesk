@@ -1,141 +1,183 @@
-# Cortexdesk
+# CortexDesk
 
-> An AI-powered collaborative cognitive workspace combining a high-performance Next.js frontend with a modular FastAPI agentic backend.
+> An AI-augmented personal cognitive workspace combining a high-performance Next.js web application with a modular FastAPI agentic backend and PostgreSQL vector storage.
 
 ---
 
-## ⚡ Quick Start (Run in 3 Steps)
+## 🏛 Monorepo Architecture Overview
 
-Anyone cloning this repository can get up and running immediately with these steps:
+CortexDesk is structured as a production-oriented monorepo:
 
-### 1. Clone the repository
-```bash
-git clone <YOUR_REPOSITORY_URL>
-cd Cortexdesk
+```text
+Cortexdesk/
+├── backend/                  # FastAPI Python backend service
+│   ├── main.py               # API server entrypoint & CORS configuration
+│   ├── pyproject.toml        # Backend dependencies & metadata (managed with uv)
+│   ├── routers/              # API endpoints and route handlers
+│   ├── services/             # Core business logic and integrations
+│   └── tests/                # Backend unit and integration test suite
+├── frontend/                 # Next.js (v16) App Router frontend
+│   ├── app/                  # Application pages and layouts
+│   ├── components/           # Reusable UI components
+│   ├── proxy.ts              # Route middleware & session validation
+│   └── utils/supabase/       # Client & server database/auth utilities
+├── database/                 # Database migrations and schema definitions
+│   └── migrations/           # PostgreSQL migration scripts
+├── tests/                    # Cross-application integration and end-to-end tests
+├── scripts/                  # Cross-platform developer automation
+│   ├── setup.js              # One-step environment bootstrapper
+│   └── check-env.js          # Environment configuration validator
+├── .github/                  # CI/CD workflows and repository metadata
+├── docker-compose.yml        # Local PostgreSQL container with pgvector support
+├── Makefile                  # Portable developer commands
+├── package.json              # Monorepo orchestration manifest
+└── pytest.ini                # Cross-application test configuration
 ```
-
-### 2. Run one-time setup
-```bash
-npm run setup
-```
-> **What this does automatically:**
-> - Verifies your Node.js version ($\ge$ 20).
-> - Generates `.env`, `frontend/.env.local`, and `backend/.env` from templates if not present.
-> - Installs all frontend dependencies (`Next.js`, `React`, etc.).
-> - Syncs the Python backend virtual environment using `uv`.
-
-### 3. Start the development server
-```bash
-npm run dev
-```
-- **Web App**: [http://localhost:3000](http://localhost:3000)
-- **FastAPI Backend**: [http://localhost:8000](http://localhost:8000)
-- **API Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
 
 ---
 
 ## 📋 Prerequisites
 
-Before starting, ensure you have:
+Before starting, ensure the following tools are installed on your machine:
 
-| Tool | Recommended Version | Download / Install |
+| Prerequisite | Minimum Version | Installation Guidance |
 | :--- | :--- | :--- |
-| **Node.js** | `>= 20.0.0` | [nodejs.org](https://nodejs.org/) |
-| **Python** | `>= 3.12` | [python.org](https://www.python.org/) |
-| **uv** *(recommended)* | Latest | `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` (Win) or `curl -LsSf https://astral.sh/uv/install.sh \| sh` (Mac/Linux) |
+| **Node.js** | `>= 20.0.0` | Download from [nodejs.org](https://nodejs.org/) |
+| **npm** | Latest | Bundled with Node.js |
+| **Python** | `3.11` to `3.13` | Download from [python.org](https://www.python.org/) |
+| **uv** | Latest *(recommended)* | Windows: `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"`<br>macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| **Docker** | Latest | Required for local PostgreSQL with pgvector ([docker.com](https://www.docker.com/)) |
 
-*Note: If `uv` is not installed, standard Python virtual environments (`python -m venv .venv` and `pip install -r requirements.txt`) can be used as fallback.*
+---
+
+## ⚡ Quick Start
+
+Get the entire development environment running in 3 steps:
+
+### 1. Install dependencies & initialize environment
+```bash
+npm run setup
+# Or using make:
+make install
+```
+> **What this does automatically:**
+> - Validates Node.js version (`>= 20.0.0`).
+> - Copies `.env.example` templates to `.env`, `frontend/.env.local`, and `backend/.env` if not already present.
+> - Installs root and frontend Node dependencies.
+> - Syncs the Python virtual environment via `uv sync`.
+
+### 2. Start local PostgreSQL with pgvector
+```bash
+docker compose up -d
+# Or using make:
+make db-up
+```
+This spins up PostgreSQL 16 with the `pgvector` extension pre-installed on port `5432` with a persistent named volume.
+
+### 3. Start the application
+```bash
+npm run dev
+# Or using make:
+make dev
+```
+- **Web Frontend**: [http://localhost:3000](http://localhost:3000)
+- **FastAPI Backend**: [http://localhost:8000](http://localhost:8000)
+- **API Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
 
 ---
 
 ## 🔑 Environment Configuration
 
-When you run `npm run setup`, default environment templates are copied for you:
+CortexDesk maintains isolated environment templates for root, frontend, and backend. Never commit real credentials or secrets to Git.
 
-1. **`frontend/.env.local`** (Frontend public variables):
+1. **Root `.env.example`** → [`.env`](file:///.env)  
+   Contains general project metadata and shared development credentials.
+2. **Frontend `frontend/.env.example`** → [`frontend/.env.local`](file:///frontend/.env.local)  
+   Exposes client-safe variables prefixed with `NEXT_PUBLIC_`:
    ```ini
-   NEXT_PUBLIC_APP_NAME=cortxdesk
+   NEXT_PUBLIC_APP_NAME=cortexdesk
    NEXT_PUBLIC_API_URL=http://localhost:8000
    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
    ```
-2. **`backend/.env`** (Backend private keys, LLM keys, DB secrets):
-   ```ini
-   BACKEND_PORT=8000
-   CORS_ORIGINS=http://localhost:3000
-   SUPABASE_URL=https://your-project.supabase.co
-   SUPABASE_ANON_KEY=your-supabase-anon-key
-   GEMINI_API_KEY=your-gemini-key
-   GROQ_API_KEY=your-groq-key
-   ```
-3. **Verify Configuration**:
-   ```bash
-   npm run check-env
-   ```
+3. **Backend `backend/.env.example`** → [`backend/.env`](file:///backend/.env)  
+   Contains server-only secrets (API keys, Supabase service-role keys, database passwords). Privileged keys must never use `NEXT_PUBLIC_`.
 
----
-
-## 🛠 Available Scripts
-
-You can run all commands directly from the repository root:
-
-| Command | Description |
-| :--- | :--- |
-| `npm run setup` | Automated bootstrap: creates `.env` files, installs frontend and backend packages |
-| `npm run dev` | Runs both Frontend (`:3000`) and Backend (`:8000`) concurrently |
-| `npm run dev:frontend` | Runs only the Next.js frontend |
-| `npm run dev:backend` | Runs only the FastAPI backend with hot reloading |
-| `npm run build` | Compiles and optimizes the Next.js production build |
-| `npm run lint` | Runs ESLint code style and syntax checks |
-| `npm test` | Runs the Python backend test suite via `pytest` |
-| `npm run check-env` | Checks that required `.env` files exist and are populated |
-
-*(Note for Mac/Linux developers: `make setup`, `make dev`, `make test`, and `make build` are also supported via the provided `Makefile`)*
-
----
-
-## 📁 Repository Structure
-
-```text
-Cortexdesk/
-├── backend/               # FastAPI Python service
-│   ├── main.py            # API server entrypoint & CORS config
-│   ├── pyproject.toml     # Python dependencies & metadata
-│   ├── routers/           # API route handlers
-│   ├── services/          # Business logic & LLM integrations
-│   └── tests/             # Pytest automated test suite
-├── frontend/              # Next.js 16 Web Application
-│   ├── app/               # App Router pages (/login, /dashboard, etc.)
-│   ├── components/        # Reusable UI components
-│   ├── proxy.ts           # Route middleware & session validation
-│   ├── utils/supabase/    # Browser & server Supabase clients
-│   └── package.json       # Frontend scripts and dependencies
-├── scripts/               # Cross-platform developer automation
-│   ├── setup.js           # Multi-platform bootstrap script
-│   └── check-env.js       # Environment configuration validator
-├── .env.example           # Root environment variable documentation
-├── Makefile               # Unix make targets
-└── package.json           # Workspace root orchestration & scripts
+To verify your environment configuration at any time:
+```bash
+npm run check-env
 ```
 
 ---
 
-## ❓ Troubleshooting
+## 🐘 Local PostgreSQL & pgvector Setup
 
-### 1. "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY"
-- Ensure `frontend/.env.local` exists.
-- Run `npm run setup` to generate it, then replace the placeholder keys with your project's Supabase URL and anon key.
+Local persistent vector storage is orchestrated via Docker Compose:
 
-### 2. Python / `uv` command not found
-- Install `uv` using:
-  - **Windows**: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-  - **macOS / Linux**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Or manually create a Python venv:
+- **Start Database**:
   ```bash
-  cd backend
-  python -m venv .venv
-  pip install -r ../requirements.txt
+  docker compose up -d
+  ```
+- **Verify Database Health**:
+  ```bash
+  docker compose ps
+  ```
+- **Stop Database**:
+  ```bash
+  docker compose down
+  ```
+- **Enabling pgvector**:  
+  The binary is pre-installed in the container. To enable the extension in SQL or automated migrations:
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS vector;
   ```
 
-### 3. Port 8000 or 3000 already in use
-- You can change `BACKEND_PORT=8001` in `.env` or run frontend on another port with `npm --prefix frontend run dev -- -p 3001`.
+*(Note: Advanced document schemas, chunking pipelines, and RAG migrations depend on subsequent tasks).*
+
+---
+
+## 🛠 Available Monorepo Commands
+
+| Command | Makefile Equivalent | Description |
+| :--- | :--- | :--- |
+| `npm run setup` | `make install` | Initial bootstrap: copies templates, installs npm and Python dependencies |
+| `npm run dev` | `make dev` | Concurrently runs frontend (`:3000`) and backend (`:8000`) |
+| `npm run dev:frontend` | `make dev-frontend` | Runs only the Next.js development server |
+| `npm run dev:backend` | `make dev-backend` | Runs only the FastAPI Uvicorn server with hot reloading |
+| `npm run lint` | `make lint` | Runs ESLint syntax and code quality checks on frontend |
+| `npm test` | `make test` | Runs the test suite via pytest across `backend/tests` and `tests` |
+| `npm run build` | `make build` | Generates the optimized Next.js production bundle |
+| `npm run check-env` | — | Verifies required environment configuration files |
+
+---
+
+## 🧪 Testing & Verification
+
+Run the automated test suite across the monorepo:
+```bash
+npm test
+# Or:
+make test
+```
+The root [`pytest.ini`](file:///pytest.ini) automatically discovers test cases in both `backend/tests/` and the cross-app `tests/` directory.
+
+To check backend health directly in a running server:
+```bash
+curl http://localhost:8000/health
+# Response: {"status":"ok"}
+```
+
+---
+
+## 📌 Milestones & Subsequent Task Dependencies
+
+The following features depend on subsequent roadmap tasks:
+- **Authentication Flow (Supabase)**: Auth routes and session verification are ready for integration in upcoming auth tasks.
+- **AI Agentic Workflows & Tool Execution**: Agent loops, LLM integrations, and LangGraph/LangChain executors depend on upcoming AI agent milestones.
+- **Document Ingestion & Embeddings**: Automated chunking, vector embeddings generation, and vector index queries depend on RAG milestone tasks.
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](file:///LICENSE) — see the `LICENSE` file for details.
