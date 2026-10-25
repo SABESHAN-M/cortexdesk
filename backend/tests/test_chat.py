@@ -150,10 +150,10 @@ def test_chat_rejects_missing_message_field():
 # 3. Successful Request Handling
 # ==============================================================================
 
-@patch("routers.chat.llm.complete", new_callable=AsyncMock)
-def test_chat_successful_request_with_fake_llm(mock_complete):
-    """Authenticated request returns HTTP 200 with reply from fake LLM."""
-    mock_complete.return_value = "Hello! I am your CortexDesk workspace assistant."
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_successful_request_with_fake_llm(mock_agent):
+    """Authenticated request returns HTTP 200 with reply from fake agent."""
+    mock_agent.return_value = "Hello! I am your CortexDesk workspace assistant."
     app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
 
     response = client.post("/api/chat", json={"message": "Hello assistant"})
@@ -162,16 +162,16 @@ def test_chat_successful_request_with_fake_llm(mock_complete):
     assert response.json() == {
         "reply": "Hello! I am your CortexDesk workspace assistant."
     }
-    mock_complete.assert_called_once()
-    kwargs = mock_complete.call_args.kwargs
+    mock_agent.assert_called_once()
+    kwargs = mock_agent.call_args.kwargs
     assert kwargs["prompt"] == "Hello assistant"
     assert "CortexDesk" in kwargs["system"]
 
 
-@patch("routers.chat.llm.complete", new_callable=AsyncMock)
-def test_chat_empty_provider_response_handled_gracefully(mock_complete):
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_empty_provider_response_handled_gracefully(mock_agent):
     """Empty provider response returns HTTP 200 with an empty reply string."""
-    mock_complete.return_value = ""
+    mock_agent.return_value = ""
     app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
 
     response = client.post("/api/chat", json={"message": "Trigger empty reply"})
@@ -184,10 +184,10 @@ def test_chat_empty_provider_response_handled_gracefully(mock_complete):
 # 4. Provider Failure Mapping
 # ==============================================================================
 
-@patch("routers.chat.llm.complete", new_callable=AsyncMock)
-def test_chat_provider_failure_maps_to_503(mock_complete):
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_provider_failure_maps_to_503(mock_agent):
     """Provider-style exceptions map to HTTP 503 with friendly, non-leaking message."""
-    mock_complete.side_effect = errors.ServerError(
+    mock_agent.side_effect = errors.ServerError(
         503, {"error": "Google Gemini upstream quota or network unavailable"}
     )
     app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
@@ -252,13 +252,13 @@ async def test_service_retries_transient_failures_and_succeeds_on_third_attempt(
 # 6. Rate Limiting Enforcement
 # ==============================================================================
 
-@patch("routers.chat.llm.complete", new_callable=AsyncMock)
-def test_chat_rate_limiting_enforcement_without_invoking_llm_on_rejection(mock_complete):
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_rate_limiting_enforcement_without_invoking_llm_on_rejection(mock_agent):
     """
     Requests exceeding configured limit return HTTP 429.
-    The LLM service is NOT invoked for the rejected request.
+    The agent service is NOT invoked for the rejected request.
     """
-    mock_complete.return_value = "Reply"
+    mock_agent.return_value = "Reply"
     app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
 
     # Allowed: 5 requests
@@ -266,7 +266,7 @@ def test_chat_rate_limiting_enforcement_without_invoking_llm_on_rejection(mock_c
         res = client.post("/api/chat", json={"message": f"Message {i}"})
         assert res.status_code == 200
 
-    assert mock_complete.call_count == 5
+    assert mock_agent.call_count == 5
 
     # 6th request: rejected by rate limiter
     rejected_res = client.post("/api/chat", json={"message": "Exceeded quota message"})
@@ -276,14 +276,14 @@ def test_chat_rate_limiting_enforcement_without_invoking_llm_on_rejection(mock_c
     )
     assert rejected_res.headers.get("Retry-After") == "60"
 
-    # Crucial assertion: LLM complete was NOT called for the 6th rejected request
-    assert mock_complete.call_count == 5
+    # Crucial assertion: agent was NOT called for the 6th rejected request
+    assert mock_agent.call_count == 5
 
 
-@patch("routers.chat.llm.complete", new_callable=AsyncMock)
-def test_chat_rate_limiting_isolated_per_authenticated_identity(mock_complete):
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_rate_limiting_isolated_per_authenticated_identity(mock_agent):
     """Rate limit on User A does not exhaust or block quota for User B."""
-    mock_complete.return_value = "OK"
+    mock_agent.return_value = "OK"
 
     # User A exhausts quota
     app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
@@ -319,10 +319,10 @@ def test_in_memory_rate_limiter_window_eviction_and_cleanup():
 # 7. Project Context & Ownership Verification
 # ==============================================================================
 
-@patch("routers.chat.llm.complete", new_callable=AsyncMock)
-def test_chat_with_valid_owned_project_id(mock_complete):
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_with_valid_owned_project_id(mock_agent):
     """When a valid project_id is provided and owned by the caller, request succeeds."""
-    mock_complete.return_value = "Project context loaded."
+    mock_agent.return_value = "Project context loaded."
     mock_db = MagicMock()
     mock_db.from_().select().eq().execute.return_value = MagicMock(
         data=[{"id": "c65daca3-f71b-4ec9-a158-3cb398b65ee0"}]
@@ -420,3 +420,47 @@ def test_chat_rejects_cryptographically_expired_jwt():
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Token has expired"
+
+
+# ==============================================================================
+# 9. Task 2.2.6 Agent Integration & Error Resilience
+# ==============================================================================
+
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_mcp_unavailability_returns_friendly_503(mock_agent):
+    """When MCP or AI service is unavailable, returns friendly HTTP 503."""
+    mock_agent.side_effect = RuntimeError("MCPClient connection failed")
+    app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
+
+    response = client.post("/api/chat", json={"message": "Query tools"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The AI service is busy. Please try again shortly."
+
+
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_timeout_maps_to_friendly_503(mock_agent):
+    """Request timeout in agent execution maps to friendly HTTP 503."""
+    import asyncio
+    mock_agent.side_effect = asyncio.TimeoutError()
+    app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
+
+    response = client.post("/api/chat", json={"message": "Slow prompt"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "The AI service is busy. Please try again shortly."
+
+
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_tool_error_handled_by_agent_does_not_cause_500(mock_agent):
+    """
+    Tool errors handled internally by the agent return a graceful answer,
+    preventing unhandled HTTP 500 errors.
+    """
+    mock_agent.return_value = "I encountered an issue computing that, but 5 * 5 = 25."
+    app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
+
+    response = client.post("/api/chat", json={"message": "Calculate with error"})
+
+    assert response.status_code == 200
+    assert "25" in response.json()["reply"]

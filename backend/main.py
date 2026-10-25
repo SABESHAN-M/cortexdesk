@@ -9,6 +9,7 @@ from auth import get_current_user, AuthenticatedUser
 from routers.projects import router as projects_router
 from routers.chat import router as chat_router
 from services.llm import llm
+from services.mcp_client import mcp_client
 
 # Active configuration loaded from environment
 settings = get_settings()
@@ -16,8 +17,14 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    await llm.aclose()
+    # Startup: Initialize shared MCPClient connection to WorkspaceTools server
+    await mcp_client.start()
+    try:
+        yield
+    finally:
+        # Shutdown: Cleanly close MCP client and LLM connections
+        await mcp_client.stop()
+        await llm.aclose()
 
 
 app = FastAPI(
