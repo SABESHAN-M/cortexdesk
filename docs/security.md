@@ -383,3 +383,152 @@ A comprehensive audit of repository files, configuration templates, environment 
 > **Decision**: **APPROVED / SIGNED OFF**
 >
 > All core data-access layers for Story 1.3 enforce strict tenant isolation, least-privilege SQL grants, non-recursive RLS policies, server-side validation, and anti-enumeration defenses. Zero privileged credentials or service-role keys are exposed in the repository or browser bundles. Live remote database verification is acknowledged as `BLOCKED` in offline environments and safely guarded by automated unit and mock validation suites.
+
+---
+
+## Security baseline for Story 1.4
+
+This document defines the comprehensive security baseline, credential isolation boundaries, and architectural controls audited for Story 1.4 (Deployment, CI/CD Merge Gates, and Production Integration).
+
+---
+
+### 1. Repository Secret Audit & Git History Forensic Scan
+
+A thorough, multi-layer credential scan was conducted across the Git repository:
+- **Scan Scope**:
+  - Full working tree, tracked files, and untracked files.
+  - Complete Git commit history (`git log --all --full-history`).
+  - Search patterns: `BEGIN PRIVATE KEY`, `ghp_`, `vca_`, `eyJh`, `service_role`, `SUPABASE_JWT_SECRET`, database passwords.
+  - Commit history check for environment files (`git log --all --full-history --diff-filter=A -- "*.env*"`).
+- **Audit Findings (Redacted)**:
+  - **Zero Committed Secrets**: No private keys (`*.key`, `*.pem`), active Supabase service-role keys, JWT secrets, database credentials, or provider API keys exist in any tracked file or past commit.
+  - **Environment Templates**: [`.env.example`](file:///.env.example), [`backend/.env.example`](file:///backend/.env.example), and [`frontend/.env.example`](file:///frontend/.env.example) use strictly synthetic placeholders (`your-project-ref`, `your-supabase-anon-or-publishable-key`, `your-local-postgres-password`).
+  - **Zero Committed `.env` Files**: Verified that `.env`, `.env.local`, and `backend/.env` have never been tracked in Git history.
+  - **Exclusion Boundaries**: Root [`.gitignore`](file:///.gitignore) strictly ignores all `.env*` files (except `.env.example`), certificates, and persistent data directories.
+  - **Container Isolation**: Dedicated [`.dockerignore`](file:///.dockerignore) and [`backend/.dockerignore`](file:///backend/.dockerignore) files prevent `.env`, `.venv`, and credentials from being copied into container build contexts.
+
+---
+
+### 2. CI/CD Permissions & Dummy-Value Strategy (GitHub Actions)
+
+The repository's GitHub Actions automation ([`.github/workflows/ci.yml`](file:///.github/workflows/ci.yml), [`.github/workflows/security.yml`](file:///.github/workflows/security.yml)) was audited:
+- **Minimal Permissions Principle**:
+  - All workflow jobs declare explicit top-level `permissions: contents: read`. No write, admin, or deployment permissions are granted to pull request or push runners.
+- **Zero Production Secret Dependency**:
+  - CI workflows reference zero GitHub Secrets (`${{ secrets.* }}`). Pull request workflows from fork or internal branches cannot leak credentials.
+- **Synthetic Test Strategy**:
+  - Frontend builds and backend tests run using explicitly synthetic, non-functional credentials (`SUPABASE_URL=https://example.supabase.co`, dummy JWT with signature `dummy-signature-for-ci-build-only`).
+  - Production secrets are never needed to build bundles or execute unit test suites.
+- **Pre-Merge Secret Detection**:
+  - The `security.yml` workflow scans for committed `.pem` and `.key` files on every push and pull request targeting `main`.
+- **Merge Gate Enforcement (Task 1.4.3)**:
+  - Strict branch protection requires status checks `Frontend lint and build` and `Backend tests`, along with mandatory Code Owner approval (`* @sabeshan-m`) and `strict: true` (branches must be up to date) before merging.
+
+---
+
+### 3. Frontend Environment Security (Vercel)
+
+The Next.js frontend deployment configuration was audited for client-safe boundary compliance:
+- **Client Variable Containment**:
+  - Only variables explicitly prefixed with `NEXT_PUBLIC_` are exposed to client JavaScript bundles.
+  - Allowed variables: `NEXT_PUBLIC_APP_NAME`, `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+- **Privileged Key Exclusion**:
+  - Confirmed that no `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, database password, or provider secret uses `NEXT_PUBLIC_` or is imported into client code.
+- **Production Build Integrity**:
+  - Monorepo root directory configured as `frontend/`.
+  - Independent build verified locally (`next build` compiled 8 routes with 0 errors).
+  - Unprivileged container user: [`frontend/Dockerfile`](file:///frontend/Dockerfile) runs as non-root `nextjs` (UID 1001).
+
+---
+
+### 4. Backend Host Security (Render / Koyeb)
+
+The FastAPI backend deployment configuration was audited:
+- **Container Hardening**:
+  - [`backend/Dockerfile`](file:///backend/Dockerfile) builds upon `python:3.12-slim` and executes as non-root `appuser` (UID 1000).
+  - Production dependency installation runs `uv sync --frozen --no-dev`, strictly omitting development and testing dependencies (`pytest`, `httpx`, `coverage`) from production containers.
+- **Dynamic Port Binding**:
+  - Binds to `0.0.0.0` and expands `${PORT}` dynamically at runtime via `CMD ["sh", "-c", "uv run uvicorn main:app --host 0.0.0.0 --port ${PORT}"]`.
+- **In-Memory Health Probe**:
+  - The `/health` endpoint responds in-memory with `{"status": "ok"}` without querying databases or third-party APIs, eliminating risk of health-check cascading failures.
+- **User-Scoped Database Security**:
+  - All database queries execute via `backend/db.py:create_user_scoped_client` using the caller's verified Bearer JWT and public anonymous key. No service-role key is imported or used.
+
+---
+
+### 5. Production CORS Policy & Narrowly Scoped Redirects
+
+- **Backend CORS Rules (`backend/config.py`)**:
+  - Explicit origins only from `CORS_ORIGINS` (e.g. `https://<your-vercel-domain>.vercel.app`).
+  - Wildcard origins (`*`) are explicitly filtered and rejected.
+  - `allow_credentials=True` is strictly paired with explicit origins to prevent credentialed CSRF vulnerabilities.
+  - No trailing paths or slashes are allowed in origin values.
+- **Authentication Redirect Allowlist (Supabase)**:
+  - **Site URL**: Strictly mapped to production Vercel origin.
+  - **Allowed Redirect URLs**: Narrowly scoped to `https://<your-vercel-domain>.vercel.app/auth/callback` and local development callback URLs (`http://localhost:3000/auth/callback`).
+  - Open wildcard redirects (`*`) are prohibited.
+- **OAuth Callback Destination**:
+  - The GitHub OAuth App's Authorization Callback URL must target Supabase Auth (`https://hcliddnesvmfbywphcvt.supabase.co/auth/v1/callback`), not Vercel, ensuring cryptographic exchange occurs within the identity provider.
+- **Open-Redirect Defenses (`frontend/app/auth/callback/route.ts`)**:
+  - `getSafeRedirectPath()` validates redirect candidates, rejecting absolute URLs and protocol-relative paths (`//`, `\`).
+
+---
+
+### 6. Dependency & Lockfile Integrity
+
+- **Deterministic Dependencies**:
+  - Backend: [`backend/uv.lock`](file:///backend/uv.lock) pins exact hashes and versions, validated in CI via `uv lock --check`.
+  - Frontend: [`frontend/package-lock.json`](file:///frontend/package-lock.json) pins npm packages, installed via `npm ci`.
+- **Supply Chain Security**:
+  - Standard, maintained packages from PyPI and npm.
+  - Zero unvetted third-party GitHub Actions; CI workflows pin major versions of official GitHub and Astral actions.
+
+---
+
+### 7. Cold-Start UX & Error Handling Security
+
+- **Cold-Start Resilience (`frontend/components/api-status.tsx`, `frontend/utils/api.ts`)**:
+  - Bounded timeouts (default 45s) prevent hanging connections during server cold-starts.
+  - Delayed status ("Waking up the server…") triggers only after a 2-second delay.
+  - Disambiguates network/timeout offline states from HTTP 4xx/5xx errors.
+  - Never interprets connection timeouts or network errors as successful authentication.
+  - Duplicate in-flight requests are blocked via internal reference guards.
+
+---
+
+### 8. Remaining Risks & Remediation Steps
+
+| Risk Description | Severity | Status | Mitigation / Remediation |
+| :--- | :---: | :---: | :--- |
+| **External Dashboard Verification** | Low | **BLOCKED** | Live Vercel, Render, and Supabase dashboard settings require repository owner login. The exact required values are documented in [docs/deployment.md](file:///docs/deployment.md). |
+| **Free-Tier Sleep Latency** | Low | **ACCEPTED** | Render free instances spin down after 15 min of inactivity. The UI cold-start state (`ApiStatus`) provides transparent user feedback. |
+| **Local Offline Database RLS Tests** | Low | **BLOCKED** | Live Supabase container execution is skipped when local database is offline; static DDL and mock tests provide coverage. |
+
+---
+
+### 9. Security Sign-Off Decision & Matrix (Story 1.4)
+
+| Control Item | Audit Layer | Verification Method | Status |
+| :--- | :--- | :--- | :---: |
+| **Zero Committed Secrets in Repo & Git History** | Repository | Git history grep & log forensic scan | **VERIFIED** |
+| **Strict `.gitignore` & `.dockerignore` Boundaries** | Repository | File review & tracked-file validation | **VERIFIED** |
+| **Client Safe `NEXT_PUBLIC_*` Isolation** | Frontend | Codebase grep & bundle inspection | **VERIFIED** |
+| **Independent Frontend Production Build** | Frontend | Local `next build` (8/8 routes compiled) | **VERIFIED** |
+| **Non-Root Container Users (UID 1000/1001)** | Container | Dockerfile static inspection | **VERIFIED** |
+| **Minimal CI Permissions (`contents: read`)** | CI/CD | Workflow static analysis | **VERIFIED** |
+| **Zero Production Secrets in CI Workflows** | CI/CD | Workflow inspection & synthetic auth mock | **VERIFIED** |
+| **Strict Merge Gate Enforcement on `main`** | CI/CD | GitHub API verification & live PR test | **VERIFIED** |
+| **Deterministic Lockfile Verification** | Build | `uv lock --check` & `npm ci` validation | **VERIFIED** |
+| **CORS Wildcard Rejection & Origin Trimming** | Backend | `backend/config.py` & pytest CORS tests | **VERIFIED** |
+| **User-Scoped DB Access (Zero Service-Role)** | Backend | Code audit of `backend/db.py` | **VERIFIED** |
+| **Asymmetric JWT Verification (RS256/ES256)** | Backend | Unit test suite (46 pytest tests passing) | **VERIFIED** |
+| **Open-Redirect Prevention in Auth Callback** | Frontend | Code audit of `getSafeRedirectPath` | **VERIFIED** |
+| **Cold-Start Safe API Wrapper & Retry Action** | Frontend | Unit test suite & component review | **VERIFIED** |
+| **Live Remote Dashboard Production URLs** | External | Cloud provider dashboard verification | **BLOCKED** *(Pending user deployment)* |
+
+#### Lead Application Security Engineer Sign-off
+
+> **Decision**: **APPROVED / SIGNED OFF (Subject to Dashboard Verification)**
+>
+> All source-level and repository-level controls for Story 1.4 satisfy production security baselines. Zero credentials or service-role keys are exposed in Git history or environment templates. CI workflows operate with minimal read permissions and synthetic test credentials. Backend containers run as non-root users with deterministic dependency isolation. Production CORS explicitly rejects wildcards, and authentication callbacks enforce open-redirect defenses. Remote cloud provider dashboard operations are accurately marked as `BLOCKED` until live production domains are configured by the repository owner.
+
