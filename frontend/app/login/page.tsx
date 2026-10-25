@@ -40,6 +40,9 @@ function LoginForm() {
         provider: "github",
         options: {
           redirectTo: callbackUrl.toString(),
+          queryParams: {
+            prompt: "select_account",
+          },
         },
       });
 
