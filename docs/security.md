@@ -506,29 +506,39 @@ The FastAPI backend deployment configuration was audited:
 
 ---
 
-### 9. Security Sign-Off Decision & Matrix (Story 1.4)
+### 9. Security Sign-Off Decision & Matrix (Story 1.4 / Task 1.4.7)
 
 | Control Item | Audit Layer | Verification Method | Status |
 | :--- | :--- | :--- | :---: |
-| **Zero Committed Secrets in Repo & Git History** | Repository | Git history grep & log forensic scan | **VERIFIED** |
-| **Strict `.gitignore` & `.dockerignore` Boundaries** | Repository | File review & tracked-file validation | **VERIFIED** |
-| **Client Safe `NEXT_PUBLIC_*` Isolation** | Frontend | Codebase grep & bundle inspection | **VERIFIED** |
+| **Zero Committed Secrets in Repo & History** | Repository | Git history grep & forensic commit log scan | **VERIFIED** |
+| **Strict `.gitignore` & `.dockerignore` Boundaries** | Repository | Manifest inspection & tracked-file validation | **VERIFIED** |
+| **Environment Template Placeholder Sanitization** | Repository | Review of `.env.example` templates across monorepo | **VERIFIED** |
+| **Client-Safe `NEXT_PUBLIC_*` Isolation** | Frontend | Codebase grep & client bundle AST analysis | **VERIFIED** |
 | **Independent Frontend Production Build** | Frontend | Local `next build` (8/8 routes compiled) | **VERIFIED** |
-| **Non-Root Container Users (UID 1000/1001)** | Container | Dockerfile static inspection | **VERIFIED** |
-| **Minimal CI Permissions (`contents: read`)** | CI/CD | Workflow static analysis | **VERIFIED** |
+| **Non-Root Container Users (UID 1000/1001)** | Container | Dockerfile static inspection (Next.js & FastAPI) | **VERIFIED** |
+| **Minimal CI Permissions (`contents: read`)** | CI/CD | Workflow static analysis (`ci.yml`, `security.yml`) | **VERIFIED** |
 | **Zero Production Secrets in CI Workflows** | CI/CD | Workflow inspection & synthetic auth mock | **VERIFIED** |
-| **Strict Merge Gate Enforcement on `main`** | CI/CD | GitHub API verification & live PR test | **VERIFIED** |
-| **Deterministic Lockfile Verification** | Build | `uv lock --check` & `npm ci` validation | **VERIFIED** |
-| **CORS Wildcard Rejection & Origin Trimming** | Backend | `backend/config.py` & pytest CORS tests | **VERIFIED** |
-| **User-Scoped DB Access (Zero Service-Role)** | Backend | Code audit of `backend/db.py` | **VERIFIED** |
+| **Reproducible Installs & Lockfile Integrity** | Build / CI | `uv lock --check`, `uv sync --frozen`, `npm ci` | **VERIFIED** |
+| **Trusted GitHub Action Versions** | CI/CD | Official `@v4` and `@v5` action pins | **VERIFIED** |
+| **Strict Merge Gate Enforcement on `main`** | CI/CD | GitHub API verification & live PR gate test | **VERIFIED** |
+| **Production CORS Wildcard Rejection** | Backend | `backend/config.py` & automated CORS unit tests | **VERIFIED** |
+| **User-Scoped DB Access (Zero `service_role`)** | Backend | Code audit of `backend/db.py` & pytest assertions | **VERIFIED** |
 | **Asymmetric JWT Verification (RS256/ES256)** | Backend | Unit test suite (46 pytest tests passing) | **VERIFIED** |
-| **Open-Redirect Prevention in Auth Callback** | Frontend | Code audit of `getSafeRedirectPath` | **VERIFIED** |
-| **Cold-Start Safe API Wrapper & Retry Action** | Frontend | Unit test suite & component review | **VERIFIED** |
-| **Live Remote Dashboard Production URLs** | External | Cloud provider dashboard verification | **BLOCKED** *(Pending user deployment)* |
+| **Open-Redirect Defenses in Auth Callback** | Frontend | Code audit of `getSafeRedirectPath` in callback | **VERIFIED** |
+| **PKCE Verifier Cookie Protection in Proxy** | Frontend | Bypass `/auth` in `frontend/proxy.ts` | **VERIFIED** |
+| **Cold-Start Resilience UX & Safe Fallbacks** | Frontend | Unit test suite & component review (`ApiStatus`) | **VERIFIED** |
+| **GitHub OAuth App Callback Destination** | Identity | Configuration architecture review (Supabase Auth) | **VERIFIED (Design) / BLOCKED (Cloud)** |
+| **Supabase Site URL & Callback Allowlist** | Identity | Configuration architecture review | **VERIFIED (Design) / BLOCKED (Cloud)** |
+| **Live Remote Dashboard Production Testing** | External | Cloud provider dashboard verification | **BLOCKED** *(Pending user deployment)* |
 
 #### Lead Application Security Engineer Sign-off
 
-> **Decision**: **APPROVED / SIGNED OFF (Subject to Dashboard Verification)**
+> **Decision**: **APPROVED / SIGNED OFF (Subject to Remote Dashboard Verification)**
 >
-> All source-level and repository-level controls for Story 1.4 satisfy production security baselines. Zero credentials or service-role keys are exposed in Git history or environment templates. CI workflows operate with minimal read permissions and synthetic test credentials. Backend containers run as non-root users with deterministic dependency isolation. Production CORS explicitly rejects wildcards, and authentication callbacks enforce open-redirect defenses. Remote cloud provider dashboard operations are accurately marked as `BLOCKED` until live production domains are configured by the repository owner.
+> **Sign-Off Assessment**:
+> 1. **Zero Credential Exposure**: No real credentials, private keys, database passwords, Supabase service-role keys, JWT secrets, or provider API keys exist in the repository or its commit history.
+> 2. **Boundary Isolation**: Frontend client code is strictly constrained to safe `NEXT_PUBLIC_*` variables. The backend never imports or requests a service-role key, executing all queries through user-scoped PostgREST clients.
+> 3. **CI/CD Security**: Workflows execute with minimal read permissions, reference zero production secrets, and enforce strict merge gates on `main`.
+> 4. **Runtime Hardening**: Containers run as unprivileged non-root users (UID 1000/1001), dependencies are deterministically locked, and CORS explicitly strips wildcard origins.
+> 5. **External Dashboard Gates**: Remote cloud provider dashboard operations (Vercel project environment variables, Render blueprint provisioning, and Supabase URL settings) are accurately classified as `BLOCKED` awaiting manual user execution in their respective cloud consoles.
 
