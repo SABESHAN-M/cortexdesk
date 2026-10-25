@@ -41,6 +41,14 @@ export async function proxy(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
+  const { pathname } = request.nextUrl;
+
+  // Dedicated auth endpoints handle their own token exchanges / verifications (e.g. /auth/callback).
+  // Never intercept or clear cookies on these routes to ensure PKCE code verifiers remain intact.
+  if (pathname.startsWith("/auth")) {
+    return response;
+  }
+
   // Gracefully bypass if Supabase is not configured yet in local/test environments
   if (!supabaseUrl || !supabaseAnonKey || !supabaseUrl.startsWith("http")) {
     return response;
@@ -72,40 +80,29 @@ export async function proxy(request: NextRequest) {
   let user = null;
   try {
     const { data, error } = await supabase.auth.getUser();
-    if (error || !data?.user) {
-      // If the refresh token is missing, expired, revoked, or invalid, clear all supabase auth cookies
-      // from both request (so downstream Server Components don't fail) and response (so the browser discards them).
-      const sbCookies = request.cookies
-        .getAll()
-        .filter((c) => c.name.startsWith("sb-"));
+    if (error) {
+      // If the refresh token is missing or invalid, clear only the stale auth token cookies
+      // while keeping code-verifier cookies intact for in-flight OAuth handshakes.
+      if (error.code === "refresh_token_not_found") {
+        const authCookies = request.cookies
+          .getAll()
+          .filter((c) => c.name.startsWith("sb-") && !c.name.includes("code-verifier"));
 
-      if (sbCookies.length > 0) {
-        sbCookies.forEach((c) => request.cookies.delete(c.name));
-        response = NextResponse.next({ request });
-        sbCookies.forEach((c) =>
-          response.cookies.set(c.name, "", { maxAge: 0, path: "/" })
-        );
+        if (authCookies.length > 0) {
+          authCookies.forEach((c) => request.cookies.delete(c.name));
+          response = NextResponse.next({ request });
+          authCookies.forEach((c) =>
+            response.cookies.set(c.name, "", { maxAge: 0, path: "/" })
+          );
+        }
       }
       user = null;
     } else {
-      user = data.user;
+      user = data?.user || null;
     }
   } catch {
-    const sbCookies = request.cookies
-      .getAll()
-      .filter((c) => c.name.startsWith("sb-"));
-
-    if (sbCookies.length > 0) {
-      sbCookies.forEach((c) => request.cookies.delete(c.name));
-      response = NextResponse.next({ request });
-      sbCookies.forEach((c) =>
-        response.cookies.set(c.name, "", { maxAge: 0, path: "/" })
-      );
-    }
     user = null;
   }
-
-  const { pathname } = request.nextUrl;
 
   // Redirect unauthenticated requests attempting to access private routes
   if (!user && !isPublic(pathname)) {
