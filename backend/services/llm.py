@@ -8,7 +8,7 @@ client lifecycle management, and privacy-safe operational logging.
 
 import logging
 import time
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional
 
 import httpx
 from google import genai
@@ -193,6 +193,48 @@ class LLMService:
             },
         )
         return text
+
+    async def generate_content(
+        self,
+        contents: Any,
+        config: Optional[types.GenerateContentConfig] = None,
+    ) -> Any:
+        """
+        Asynchronously invokes generate_content with transient error retries (5xx, 429, timeouts).
+        Used by the agent orchestrator for robust multi-turn conversations and function calling.
+        """
+        start_time = time.monotonic()
+        retrying = AsyncRetrying(
+            stop=stop_after_attempt(self.max_attempts),
+            wait=wait_exponential(
+                multiplier=1, min=self.retry_min_wait, max=self.retry_max_wait
+            ),
+            retry=retry_if_exception(is_transient_error),
+            reraise=True,
+        )
+
+        response = None
+        async for attempt in retrying:
+            with attempt:
+                try:
+                    response = await self.client.aio.models.generate_content(
+                        model=self.model,
+                        contents=contents,
+                        config=config,
+                    )
+                except Exception as exc:
+                    elapsed = time.monotonic() - start_time
+                    logger.warning(
+                        "LLM generate_content attempt %d failed: model=%s duration_s=%.3f error_type=%s: %s",
+                        attempt.retry_state.attempt_number,
+                        self.model,
+                        elapsed,
+                        type(exc).__name__,
+                        exc,
+                    )
+                    raise
+
+        return response
 
     async def stream(
         self,

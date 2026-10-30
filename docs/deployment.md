@@ -102,16 +102,20 @@ Configure these runtime environment variables in the hosting dashboard (e.g., Re
 | `GROQ_API_KEY` | **Yes** (if Groq) | Private API key for Groq | Configured in hosting dashboard |
 | `LLM_MODEL` | **Yes** | Primary inference model identifier | `gemini-2.0-flash` |
 | `EMBED_MODEL` | **Yes** | Embedding model identifier for RAG | `text-embedding-004` |
+| `TAVILY_API_KEY` | Optional | API key for Tavily web search MCP tool | Configured in hosting dashboard |
 
 > [!WARNING]
 > **Strict Principle of Least Privilege & Credential Isolation**:
 > - **Never configure `SUPABASE_SERVICE_ROLE_KEY`** in the backend runtime.
 > - CortexDesk's database operations execute strictly within the authenticated caller's identity via `backend/db.py:create_user_scoped_client` using the user's verified Bearer JWT and the project's public anon key.
 > - Never set `CORS_ORIGINS=*`. The backend configuration explicitly strips wildcards to prevent credential leakages.
-> - **LLM Provider Keys (`GEMINI_API_KEY`, `GROQ_API_KEY`)**:
+> - **LLM & Tool Provider Keys (`GEMINI_API_KEY`, `GROQ_API_KEY`, `TAVILY_API_KEY`)**:
 >   - Must be configured manually in the hosting provider dashboard (Render/Koyeb).
 >   - Must remain exclusively on the backend; **never prefix with `NEXT_PUBLIC_`**.
 >   - Never commit API keys to Git, Docker build arguments, or client bundles.
+> - **MCP Subprocess Management**:
+>   - FastAPI spawns the MCP tool server (`backend/mcp_server.py`) as a child process via `sys.executable` over stdio during startup.
+>   - On hosting platforms (Docker / Render / Koyeb), ensure the process has permissions to spawn child processes within its container or runtime sandbox.
 
 
 ---

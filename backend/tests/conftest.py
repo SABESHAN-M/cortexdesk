@@ -26,5 +26,6 @@ def pytest_configure(config):
     os.environ.setdefault("GEMINI_API_KEY", "dummy-gemini-test-key")
     os.environ.setdefault("LLM_MODEL", "gemini-2.0-flash")
     os.environ.setdefault("EMBED_MODEL", "text-embedding-004")
+    os.environ.setdefault("TAVILY_API_KEY", "dummy-tavily-test-key")
     # Clear settings cache so it picks up test defaults
     get_settings.cache_clear()

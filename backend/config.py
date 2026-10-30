@@ -58,8 +58,14 @@ class Settings(BaseSettings):
         description="Per-user rate limit for /api/chat requests per minute (default: 5)",
     )
 
+    # Search Provider Settings (Story 2.2, Task 2.2.1)
+    tavily_api_key: Optional[str] = Field(
+        default=None,
+        description="Private API key for Tavily search provider",
+    )
+
     model_config = SettingsConfigDict(
-        env_file=(str(BACKEND_DIR / ".env"), ".env"),
+        env_file=(".env", str(BACKEND_DIR / ".env")),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -119,11 +125,12 @@ class Settings(BaseSettings):
     def __repr__(self) -> str:
         masked_gemini = "***" if self.gemini_api_key else None
         masked_groq = "***" if self.groq_api_key else None
+        masked_tavily = "***" if self.tavily_api_key else None
         return (
             f"Settings(app_name={self.app_name!r}, app_env={self.app_env!r}, "
             f"llm_provider={self.llm_provider!r}, llm_model={self.llm_model!r}, "
             f"embed_model={self.embed_model!r}, gemini_api_key={masked_gemini!r}, "
-            f"groq_api_key={masked_groq!r})"
+            f"groq_api_key={masked_groq!r}, tavily_api_key={masked_tavily!r})"
         )
 
 

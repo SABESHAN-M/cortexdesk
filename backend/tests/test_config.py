@@ -136,14 +136,17 @@ def test_settings_repr_redacts_api_keys():
         _env_file=None,
         gemini_api_key="super-secret-gemini-key-999",
         groq_api_key="super-secret-groq-key-888",
+        tavily_api_key="super-secret-tavily-key-777",
         llm_model="gemini-2.0-flash",
         embed_model="text-embedding-004",
     )
     repr_str = repr(settings)
     assert "super-secret-gemini-key-999" not in repr_str
     assert "super-secret-groq-key-888" not in repr_str
+    assert "super-secret-tavily-key-777" not in repr_str
     assert "gemini_api_key='***'" in repr_str
     assert "groq_api_key='***'" in repr_str
+    assert "tavily_api_key='***'" in repr_str
 
 
 def test_validation_error_does_not_expose_secret():
