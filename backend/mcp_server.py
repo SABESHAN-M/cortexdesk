@@ -8,6 +8,7 @@ featuring:
 """
 
 import ast
+from datetime import datetime, timezone
 import logging
 import math
 import sys
@@ -312,6 +313,22 @@ def web_search(
             break
 
     return clean_results
+
+
+@mcp.tool()
+def get_current_datetime() -> str:
+    """
+    Returns the current real-world date, time, and day of the week.
+
+    Instruct the assistant to call this tool whenever the user asks for the current date,
+    current time, day of the week, or year, or when live temporal context is needed.
+    """
+    now_local = datetime.now().astimezone()
+    now_utc = datetime.now(timezone.utc)
+    return (
+        f"Local Date and Time: {now_local.strftime('%A, %B %d, %Y %I:%M:%S %p %Z')}\n"
+        f"UTC Date and Time: {now_utc.strftime('%A, %B %d, %Y %H:%M:%S UTC')}"
+    )
 
 
 if __name__ == "__main__":

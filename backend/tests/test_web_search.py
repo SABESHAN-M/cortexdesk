@@ -234,3 +234,19 @@ def test_workspace_tools_lists_both_calculator_and_search():
     web_search_tool = next(t for t in tools if t.name == "web_search")
     assert "current facts, news" in web_search_tool.description
     assert "MUST NOT be used to search for or access private CortexDesk projects" in web_search_tool.description
+
+
+def test_workspace_tools_get_current_datetime():
+    """Verify get_current_datetime is registered and returns valid date strings."""
+    from datetime import datetime
+    from mcp_server import get_current_datetime, mcp
+    import asyncio
+
+    tools = asyncio.run(mcp.list_tools())
+    tool_names = [t.name for t in tools]
+    assert "get_current_datetime" in tool_names
+
+    output = get_current_datetime()
+    assert "Local Date and Time:" in output
+    assert "UTC Date and Time:" in output
+    assert str(datetime.now().year) in output

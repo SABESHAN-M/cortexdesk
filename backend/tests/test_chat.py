@@ -166,6 +166,27 @@ def test_chat_successful_request_with_fake_llm(mock_agent):
     kwargs = mock_agent.call_args.kwargs
     assert kwargs["prompt"] == "Hello assistant"
     assert "CortexDesk" in kwargs["system"]
+    assert "Today's date is" in kwargs["system"]
+
+
+@patch("routers.chat.run_agent", new_callable=AsyncMock)
+def test_chat_forwards_client_date_to_system_prompt(mock_agent):
+    """Client-provided date context is injected into agent system prompt."""
+    mock_agent.return_value = "Today is Friday, October 30, 2026."
+    app.dependency_overrides[get_current_user] = lambda: MOCK_USER_A
+
+    response = client.post(
+        "/api/chat",
+        json={
+            "message": "what is today's date?",
+            "client_date": "Friday, October 30, 2026 at 10:46 AM",
+        },
+    )
+
+    assert response.status_code == 200
+    mock_agent.assert_called_once()
+    kwargs = mock_agent.call_args.kwargs
+    assert "Friday, October 30, 2026 at 10:46 AM" in kwargs["system"]
 
 
 @patch("routers.chat.run_agent", new_callable=AsyncMock)

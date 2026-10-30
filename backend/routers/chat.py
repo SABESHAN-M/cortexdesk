@@ -19,6 +19,7 @@ Security & Architectural Principles:
 
 from collections import deque
 import asyncio
+from datetime import datetime, timezone
 import logging
 import threading
 import time
@@ -45,6 +46,24 @@ DEFAULT_CHAT_SYSTEM_PROMPT = (
     "retrieved from web search, include relevant supporting URLs."
 )
 CHAT_REQUEST_TIMEOUT = 55.0
+
+
+def get_chat_system_prompt(client_date: Optional[str] = None) -> str:
+    """
+    Constructs the system prompt dynamically grounding the assistant with
+    the current real-world date and time.
+    """
+    if client_date and client_date.strip():
+        date_str = client_date.strip()
+    else:
+        now = datetime.now().astimezone()
+        date_str = now.strftime("%A, %B %d, %Y (%Z)")
+
+    return (
+        "You are the CortexDesk AI assistant, an intelligent, helpful, and concise companion "
+        f"for knowledge management and project productivity. Today's date is {date_str}. "
+        "When providing factual information retrieved from web search, include relevant supporting URLs."
+    )
 
 
 # ==============================================================================
@@ -140,6 +159,11 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional project UUID context for the conversation",
     )
+    client_date: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="Optional client local date and time string from browser",
+    )
 
     @field_validator("message")
     @classmethod
@@ -166,6 +190,16 @@ class ChatRequest(BaseModel):
             return str(parsed)
         except (ValueError, AttributeError):
             raise ValueError("Invalid project ID: must be a valid UUID format.")
+
+    @field_validator("client_date")
+    @classmethod
+    def validate_client_date(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        trimmed = v.strip()
+        if not trimmed:
+            return None
+        return trimmed[:200]
 
 
 class ChatResponse(BaseModel):
@@ -227,11 +261,12 @@ async def chat(
 
     # 3. Agent Execution with Bounded Timeout & Client Cancellation Safety
     start_time = time.perf_counter()
+    system_prompt = get_chat_system_prompt(payload.client_date)
     try:
         async with asyncio.timeout(CHAT_REQUEST_TIMEOUT):
             reply = await run_agent(
                 prompt=payload.message,
-                system=DEFAULT_CHAT_SYSTEM_PROMPT,
+                system=system_prompt,
                 timeout=CHAT_REQUEST_TIMEOUT,
             )
     except asyncio.CancelledError:
@@ -240,9 +275,10 @@ async def chat(
     except Exception as exc:
         duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
         logger.error(
-            "Chat agent provider failure: error_type=%s duration_ms=%s",
+            "Chat agent provider failure: error_type=%s duration_ms=%s error=%s",
             type(exc).__name__,
             duration_ms,
+            exc,
         )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

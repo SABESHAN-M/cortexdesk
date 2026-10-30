@@ -143,7 +143,11 @@ def tool_declarations(client: Optional[Any] = None) -> List[types.FunctionDeclar
             continue
 
         description = getattr(tool, "description", "") or ""
-        raw_schema = getattr(tool, "inputSchema", None) or {"type": "object", "properties": {}}
+        raw_schema = (
+            getattr(tool, "input_schema", None)
+            or getattr(tool, "inputSchema", None)
+            or {"type": "object", "properties": {}}
+        )
 
         validated_schema = validate_mcp_tool_schema(tool_name, raw_schema)
 
@@ -202,11 +206,17 @@ async def run_agent(
         async with asyncio.timeout(timeout):
             while True:
                 # 1. Query the model with conversation history and dynamic tools
-                response = await service.client.aio.models.generate_content(
-                    model=service.model,
-                    contents=contents,
-                    config=config,
-                )
+                if hasattr(service, "generate_content"):
+                    response = await service.generate_content(
+                        contents=contents,
+                        config=config,
+                    )
+                else:
+                    response = await service.client.aio.models.generate_content(
+                        model=service.model,
+                        contents=contents,
+                        config=config,
+                    )
 
                 # 2. Inspect for tool calling requests
                 function_calls = getattr(response, "function_calls", None) or []
@@ -276,7 +286,7 @@ async def run_agent(
                         continue
 
                     # Validate argument structure against declared JSON Schema
-                    raw_schema = getattr(tool_def, "inputSchema", None)
+                    raw_schema = getattr(tool_def, "input_schema", None) or getattr(tool_def, "inputSchema", None)
                     if raw_schema:
                         try:
                             jsonschema.validate(instance=args, schema=raw_schema)

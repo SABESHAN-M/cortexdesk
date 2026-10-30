@@ -22,7 +22,7 @@ logger = logging.getLogger("cortexdesk.mcp_client")
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_SERVER_PATH = BACKEND_DIR / "mcp_server.py"
-DEFAULT_TIMEOUT_SECONDS = 15.0
+DEFAULT_TIMEOUT_SECONDS = 30.0
 
 
 class MCPClient:
@@ -80,10 +80,12 @@ class MCPClient:
             self.python_executable,
         )
 
+        env = dict(os.environ)
+        env["PYTHONUNBUFFERED"] = "1"
         params = StdioServerParameters(
             command=self.python_executable,
-            args=[str(self.server_path)],
-            env=dict(os.environ),
+            args=["-u", str(self.server_path)],
+            env=env,
             cwd=str(self.server_path.parent),
         )
 
